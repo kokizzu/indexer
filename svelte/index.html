@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Indexer</title>
+  <style>
+    :root {
+      --bg: #f5f0e6;
+      --bg2: #efe6d6;
+      --card: rgba(255,255,255,0.82);
+      --ink: #231b18;
+      --muted: #78665d;
+      --line: #d8cab9;
+      --accent: #b44f2c;
+      --accent2: #264653;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(180,79,44,0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(38,70,83,0.12), transparent 25%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .hero { display: grid; gap: 18px; grid-template-columns: 1.3fr 0.7fr; margin-bottom: 20px; }
+    .panel, .heroCard { background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 12px 36px rgba(35,27,24,0.08); }
+    .heroCard { padding: 24px; }
+    h1, h2 { margin: 0 0 12px; font-family: Georgia, "Times New Roman", serif; }
+    h1 { font-size: 44px; line-height: 1; }
+    p { color: var(--muted); line-height: 1.5; }
+    .grid { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+    .panel { padding: 20px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    input, select, textarea, button { font: inherit; border-radius: 12px; border: 1px solid var(--line); padding: 11px 14px; }
+    input, select, textarea { background: rgba(255,255,255,0.9); color: var(--ink); width: 100%; }
+    textarea { min-height: 96px; resize: vertical; }
+    button { cursor: pointer; background: var(--accent); color: white; border: 0; font-weight: 600; }
+    button.secondary { background: var(--accent2); }
+    button.warn { background: #7f1d1d; }
+    .status, .list { font-family: "IBM Plex Mono", monospace; font-size: 13px; background: rgba(255,255,255,0.72); border-radius: 14px; border: 1px solid var(--line); }
+    .status { white-space: pre-wrap; padding: 14px; min-height: 130px; }
+    .list { max-height: 420px; overflow: auto; }
+    .item { padding: 12px 14px; border-bottom: 1px solid rgba(216,202,185,0.55); }
+    .item:last-child { border-bottom: 0; }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 6px; word-break: break-all; }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; background: rgba(180,79,44,0.12); color: var(--accent); margin-right: 6px; }
+    .progressWrap { margin-top: 14px; }
+    .progressBar { height: 18px; border-radius: 999px; background: rgba(38,70,83,0.12); overflow: hidden; border: 1px solid var(--line); }
+    .progressFill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #dd7f4f); transition: width .25s ease; }
+    .progressMeta { margin-top: 8px; color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+    @media (max-width: 900px) { .hero, .grid { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="heroCard">
+        <h1>Indexer</h1>
+        <p>Local-only media indexer with ClickHouse search, resumable reindex, duplicate detection, rename suggestions, and confirmed file operations.</p>
+        <div class="row">
+          <button onclick="startReindex()">Start Reindex</button>
+          <input id="priorityRoot" placeholder="Priority root, optional">
+        </div>
+        <div class="progressWrap">
+          <div class="progressBar"><div id="progressFill" class="progressFill"></div></div>
+          <div id="progressMeta" class="progressMeta">0.00% by size</div>
+        </div>
+        <div id="treeProgress" class="status" style="margin-top:14px"></div>
+      </div>
+      <div class="heroCard">
+        <h2>Status</h2>
+        <div id="status" class="status">loading...</div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <h2>Browse</h2>
+        <div class="row">
+          <input id="browsePath" placeholder="Leave empty to list configured roots">
+          <button class="secondary" onclick="loadBrowse()">Browse</button>
+        </div>
+        <div id="browseResults" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Search</h2>
+        <div class="row">
+          <input id="searchQuery" placeholder="title, alt title, episode tag, path">
+          <select id="searchKind">
+            <option value="">all</option>
+            <option value="dir">directories</option>
+            <option value="file">files</option>
+          </select>
+          <button class="secondary" onclick="runSearch()">Search</button>
+        </div>
+        <div id="searchResults" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Duplicates</h2>
+        <p>Fingerprints use file size plus sampled content from the start and end of each file.</p>
+        <div class="row">
+          <button class="secondary" onclick="loadDuplicates()">Refresh Duplicates</button>
+        </div>
+        <div id="duplicates" class="list"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Rename Suggestion</h2>
+        <div class="row">
+          <input id="suggestPath" placeholder="/path/to/directory">
+          <button onclick="suggestRename()">Suggest</button>
+        </div>
+        <div id="suggestResult" class="status"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Manage</h2>
+        <p>All destructive operations require the configured password and <code>CONFIRM</code>.</p>
+        <textarea id="managePayload" placeholder='{"password":"example","srcPath":"/from","dstDir":"/to","confirm":"CONFIRM"}'></textarea>
+        <div class="row">
+          <button onclick="callManage('/api/move')">Move</button>
+          <button class="secondary" onclick="callManage('/api/rename')">Rename</button>
+          <button class="warn" onclick="callManage('/api/delete')">Delete</button>
+        </div>
+        <div id="manageResult" class="status"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    async function getJSON(url, options = {}) {
+      const res = await fetch(url, options)
+      const text = await res.text()
+      if (!res.ok) throw new Error(text)
+      return text ? JSON.parse(text) : {}
+    }
+    function renderItems(el, items, render) {
+      el.innerHTML = items.length ? items.map(render).join('') : '<div class="item">No data</div>'
+    }
+    function formatBytes(bytes) {
+      if (!bytes) return '0 B'
+      const units = ['B','KB','MB','GB','TB']
+      let value = bytes
+      let idx = 0
+      while (value >= 1024 && idx < units.length - 1) {
+        value /= 1024
+        idx++
+      }
+      return value.toFixed(idx === 0 ? 0 : 2) + ' ' + units[idx]
+    }
+    async function refreshStatus() {
+      try {
+        const s = await getJSON('/api/status')
+        document.getElementById('status').textContent = JSON.stringify(s, null, 2)
+        const pct = Number(s.progressPct || 0)
+        document.getElementById('progressFill').style.width = pct.toFixed(2) + '%'
+        document.getElementById('progressMeta').textContent = pct.toFixed(2) + '% by size • ' + formatBytes(s.processedBytes || 0) + ' / ' + formatBytes(s.totalBytes || 0)
+        document.getElementById('treeProgress').innerHTML = (s.mounts || []).map(mount =>
+          '<div style="margin-bottom:14px">' +
+            '<div><strong>' + (mount.mountPoint || '(unknown mount)') + '</strong> ' + Number(mount.progressPct || 0).toFixed(2) + '% • ' + formatBytes(mount.processedBytes || 0) + ' / ' + formatBytes(mount.totalBytes || 0) + '</div>' +
+            '<div class="progressBar" style="margin:6px 0 8px"><div class="progressFill" style="width:' + Number(mount.progressPct || 0).toFixed(2) + '%"></div></div>' +
+            (mount.roots || []).map(root =>
+              '<div style="padding-left:14px; margin-bottom:8px">' +
+                '<div><span class="pill">' + root.kind + '</span>' + root.path + ' ' + Number(root.progressPct || 0).toFixed(2) + '% • ' + formatBytes(root.processedBytes || 0) + ' / ' + formatBytes(root.totalBytes || 0) + '</div>' +
+                '<div class="progressBar" style="margin-top:4px"><div class="progressFill" style="width:' + Number(root.progressPct || 0).toFixed(2) + '%"></div></div>' +
+              '</div>'
+            ).join('') +
+          '</div>'
+        ).join('')
+      } catch (err) {
+        document.getElementById('status').textContent = String(err)
+      }
+    }
+    async function startReindex() {
+      const priority = document.getElementById('priorityRoot').value.trim()
+      const url = priority ? '/api/reindex?priority=' + encodeURIComponent(priority) : '/api/reindex'
+      await getJSON(url, { method: 'POST' })
+      refreshStatus()
+    }
+    async function runSearch() {
+      const q = document.getElementById('searchQuery').value.trim()
+      const kind = document.getElementById('searchKind').value
+      const res = await getJSON('/api/search?q=' + encodeURIComponent(q) + '&kind=' + encodeURIComponent(kind))
+      renderItems(document.getElementById('searchResults'), res, item =>
+        '<div class="item">' +
+          '<div><span class="pill">' + (item.isDir ? 'DIR' : 'FILE') + '</span><span class="pill">' + item.rootKind + '</span>' + item.base + '</div>' +
+          '<div class="meta">' + (item.displayPath || item.base) + '<br>size=' + item.size + ' modified=' + item.modifiedAt + '</div>' +
+        '</div>')
+    }
+    async function loadBrowse() {
+      const path = document.getElementById('browsePath').value.trim()
+      const res = await getJSON('/api/browse?path=' + encodeURIComponent(path))
+      renderItems(document.getElementById('browseResults'), res, item =>
+        '<div class="item">' +
+          '<div><span class="pill">' + (item.isDir ? 'DIR' : 'FILE') + '</span>' + item.base + '</div>' +
+          '<div class="meta">' + item.path + '<br>size=' + item.size + ' modified=' + item.modifiedAt + '</div>' +
+        '</div>')
+    }
+    async function loadDuplicates() {
+      const res = await getJSON('/api/duplicates')
+      renderItems(document.getElementById('duplicates'), res, item =>
+        '<div class="item">' +
+          '<div><span class="pill">' + item.paths.length + ' copies</span>' + item.size + ' bytes</div>' +
+          '<div class="meta">' + item.paths.join('<br>') + '</div>' +
+        '</div>')
+    }
+    async function suggestRename() {
+      const path = document.getElementById('suggestPath').value.trim()
+      const res = await getJSON('/api/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      })
+      document.getElementById('suggestResult').textContent = JSON.stringify(res, null, 2)
+    }
+    async function callManage(url) {
+      try {
+        const body = JSON.parse(document.getElementById('managePayload').value)
+        const res = await getJSON(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        document.getElementById('manageResult').textContent = JSON.stringify(res, null, 2)
+      } catch (err) {
+        document.getElementById('manageResult').textContent = String(err)
+      }
+    }
+    refreshStatus()
+    loadBrowse()
+    setInterval(refreshStatus, 3000)
+  </script>
+</body>
+</html>

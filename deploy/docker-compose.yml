@@ -1,0 +1,17 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: indexer-clickhouse
+    ports:
+      - "8127:8123"
+      - "9006:9000"
+    environment:
+      CLICKHOUSE_USER: "userC"
+      CLICKHOUSE_PASSWORD: "passC"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ../_tmpdb/var_lib_clickhouse:/var/lib/clickhouse
+

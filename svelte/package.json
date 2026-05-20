@@ -1,0 +1,10 @@
+{
+  "name": "indexer-svelte",
+  "private": true,
+  "scripts": {
+    "dev": "five-server --root . --port 3900"
+  },
+  "devDependencies": {
+    "five-server": "^0.3.2"
+  }
+}

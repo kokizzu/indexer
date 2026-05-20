@@ -1,0 +1,48 @@
+package model
+
+import "time"
+
+type FileEntry struct {
+	Path        string    `json:"path"`
+	Dir         string    `json:"dir"`
+	Base        string    `json:"base"`
+	Ext         string    `json:"ext"`
+	Root        string    `json:"root"`
+	RootKind    string    `json:"rootKind"`
+	IsDir       uint8     `json:"is_dir"`
+	Size        int64     `json:"size"`
+	ModifiedAt  time.Time `json:"modified_at"`
+	Fingerprint string    `json:"fingerprint"`
+	Content     string    `json:"content"`
+}
+
+type SearchResult struct {
+	Path        string `json:"path"`
+	DisplayPath string `json:"displayPath"`
+	Base        string `json:"base"`
+	Root        string `json:"root"`
+	RootKind    string `json:"rootKind"`
+	IsDir       uint8  `json:"isDir"`
+	Size        int64  `json:"size"`
+	ModifiedAt  string `json:"modifiedAt"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type DuplicateGroup struct {
+	Fingerprint string   `json:"fingerprint"`
+	Size        int64    `json:"size"`
+	Paths       []string `json:"paths"`
+}
+
+type BrowseEntry struct {
+	Path       string `json:"path"`
+	Base       string `json:"base"`
+	IsDir      bool   `json:"isDir"`
+	Size       int64  `json:"size"`
+	ModifiedAt string `json:"modifiedAt"`
+}
+
+type ActionResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}

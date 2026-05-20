@@ -1,0 +1,6 @@
+_tmpdb/
+backup/
+.env.override
+indexer
+tmp/
+.idea
