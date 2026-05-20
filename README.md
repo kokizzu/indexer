@@ -55,7 +55,7 @@ CLICKHOUSE_DB=indexer
 CLICKHOUSE_USER=userC
 CLICKHOUSE_PASSWORD=passC
 MOVIES_EXTS="mkv avi mpg mpeg mp4 m4v mov webm wmv"
-SUBTITLE_EXT="sub idx srt"
+SUBTITLE_EXTS="sub idx srt"
 ```
 
 ## How It Works

@@ -58,7 +58,7 @@ func LoadConfig(envPath string) (Config, error) {
 		ClickHouseUser: get("CLICKHOUSE_USER", DefaultClickHouseUser),
 		ClickHousePass: get("CLICKHOUSE_PASSWORD", DefaultClickHousePass),
 		MoviesExts:     ParseSpaceList(get("MOVIES_EXTS", DefaultMoviesExts)),
-		SubtitleExts:   ParseSpaceList(get("SUBTITLE_EXT", DefaultSubtitleExts)),
+		SubtitleExts:   ParseSpaceList(get("SUBTITLE_EXTS", DefaultSubtitleExts)),
 	}
 	if cfg.Password == "" {
 		return Config{}, errors.New("PASSWORD must not be empty")
