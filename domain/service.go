@@ -33,10 +33,30 @@ var (
 	splitterRe = regexp.MustCompile(`[._]+`)
 )
 
+var videoExts = map[string]struct{}{
+	".avi":  {},
+	".m4v":  {},
+	".mkv":  {},
+	".mov":  {},
+	".mp4":  {},
+	".mpeg": {},
+	".mpg":  {},
+	".webm": {},
+	".wmv":  {},
+}
+
 type Status struct {
 	Running         bool            `json:"running"`
 	StartedAt       time.Time       `json:"startedAt"`
 	FinishedAt      time.Time       `json:"finishedAt"`
+	Resumed         bool            `json:"resumed"`
+	ResumedEntries  int             `json:"resumedEntries"`
+	WorkerCount     int             `json:"workerCount"`
+	ActiveWorkers   int             `json:"activeWorkers"`
+	EstimatedRoots  int             `json:"estimatedRoots"`
+	TotalRoots      int             `json:"totalRoots"`
+	EstimatedFiles  int             `json:"estimatedFiles"`
+	EstimatedDirs   int             `json:"estimatedDirs"`
 	CurrentRoot     string          `json:"currentRoot"`
 	CurrentPath     string          `json:"currentPath"`
 	Indexed         int             `json:"indexed"`
@@ -90,6 +110,12 @@ type Domain struct {
 type ReindexCheckpoint struct {
 	PriorityRoot   string    `json:"priorityRoot"`
 	StartedAt      time.Time `json:"startedAt"`
+	Resumed        bool      `json:"resumed"`
+	ResumedEntries int       `json:"resumedEntries"`
+	EstimatedRoots int       `json:"estimatedRoots"`
+	TotalRoots     int       `json:"totalRoots"`
+	EstimatedFiles int       `json:"estimatedFiles"`
+	EstimatedDirs  int       `json:"estimatedDirs"`
 	TotalBytes     int64     `json:"totalBytes"`
 	ProcessedBytes int64     `json:"processedBytes"`
 	Indexed        int       `json:"indexed"`
@@ -248,8 +274,7 @@ func (d *Domain) runReindex(priority string) {
 		d.status = status
 		d.mu.Unlock()
 	}
-	rootRemaining, remainingBytes := d.estimateRemainingRootBytes(roots, processedPaths)
-	rehydrateProgressTotals(&status, rootRemaining, remainingBytes)
+	seedProgressTotals(&status)
 	d.mu.Lock()
 	d.status = status
 	d.mu.Unlock()
@@ -270,11 +295,31 @@ func (d *Domain) runReindex(priority string) {
 	var firstErr error
 	var errMu sync.Mutex
 	var wg sync.WaitGroup
-	for _, group := range groupRootsByMount(roots, mountHints) {
+	groups := groupRootsByMount(roots, mountHints)
+	status.WorkerCount = len(groups)
+	status.TotalRoots = len(roots)
+	d.mu.Lock()
+	d.status = status
+	d.mu.Unlock()
+	for _, group := range groups {
 		group := group
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			scanMu.Lock()
+			status.ActiveWorkers++
+			d.mu.Lock()
+			d.status = status
+			d.mu.Unlock()
+			scanMu.Unlock()
+			defer func() {
+				scanMu.Lock()
+				status.ActiveWorkers--
+				d.mu.Lock()
+				d.status = status
+				d.mu.Unlock()
+				scanMu.Unlock()
+			}()
 			for _, rootInfo := range group {
 				scanMu.Lock()
 				status.CurrentRoot = rootInfo.Path
@@ -288,6 +333,9 @@ func (d *Domain) runReindex(priority string) {
 					if statErr != nil {
 						return nil
 					}
+					if !info.IsDir() && !IsIndexableVideoExt(filepath.Ext(cleanPath)) {
+						return nil
+					}
 
 					scanMu.Lock()
 					if _, done := processedPaths[cleanPath]; done {
@@ -295,6 +343,7 @@ func (d *Domain) runReindex(priority string) {
 						return nil
 					}
 					status.CurrentPath = cleanPath
+					discoverProgressEntry(&status, rootInfo.Path, info.IsDir(), info.Size())
 					scanMu.Unlock()
 
 					entry := model.FileEntry{
@@ -365,6 +414,13 @@ func (d *Domain) runReindex(priority string) {
 					errMu.Unlock()
 					return
 				}
+				scanMu.Lock()
+				status.EstimatedRoots++
+				_ = d.saveCheckpoint(status)
+				d.mu.Lock()
+				d.status = status
+				d.mu.Unlock()
+				scanMu.Unlock()
 			}
 		}()
 	}
@@ -375,6 +431,7 @@ func (d *Domain) runReindex(priority string) {
 	}
 
 	status.Added, status.Removed, status.Renamed = DiffCounts(existingByPath, newPaths)
+	computeSubtreeStats(scanned)
 	if err := d.Store.ReplaceEntries(scanned); err != nil {
 		status.Error = err.Error()
 		return
@@ -454,58 +511,13 @@ func parsePriorityRoots(priority string) map[string]struct{} {
 }
 
 func (d *Domain) Browse(path string) ([]model.BrowseEntry, error) {
-	if strings.TrimSpace(path) == "" {
-		entries := make([]model.BrowseEntry, 0, len(d.Cfg.AllRoots()))
-		for _, root := range d.Cfg.AllRoots() {
-			info, err := os.Stat(root)
-			if err != nil {
-				continue
-			}
-			entries = append(entries, model.BrowseEntry{
-				Path:       root,
-				Base:       filepath.Base(root),
-				IsDir:      info.IsDir(),
-				Size:       info.Size(),
-				ModifiedAt: info.ModTime().UTC().Format(time.RFC3339),
-			})
+	if strings.TrimSpace(path) != "" {
+		path = filepath.Clean(path)
+		if err := d.AssertAllowed(path); err != nil {
+			return nil, err
 		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-		return entries, nil
 	}
-
-	path = filepath.Clean(path)
-	if err := d.AssertAllowed(path); err != nil {
-		return nil, err
-	}
-	items, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]model.BrowseEntry, 0, len(items))
-	for _, item := range items {
-		fullPath := filepath.Join(path, item.Name())
-		if err := d.AssertAllowed(fullPath); err != nil {
-			continue
-		}
-		info, statErr := item.Info()
-		if statErr != nil {
-			continue
-		}
-		out = append(out, model.BrowseEntry{
-			Path:       fullPath,
-			Base:       item.Name(),
-			IsDir:      info.IsDir(),
-			Size:       info.Size(),
-			ModifiedAt: info.ModTime().UTC().Format(time.RFC3339),
-		})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].IsDir != out[j].IsDir {
-			return out[i].IsDir
-		}
-		return out[i].Base < out[j].Base
-	})
-	return out, nil
+	return d.Store.Browse(path, d.Cfg.AllRoots())
 }
 
 func SuggestName(base string) string {
@@ -546,6 +558,53 @@ func SuggestName(base string) string {
 		return base
 	}
 	return suggested
+}
+
+func IsIndexableVideoExt(ext string) bool {
+	_, ok := videoExts[strings.ToLower(strings.TrimSpace(ext))]
+	return ok
+}
+
+func computeSubtreeStats(entries []model.FileEntry) {
+	byPath := make(map[string]*model.FileEntry, len(entries))
+	order := make([]string, 0, len(entries))
+	for i := range entries {
+		entry := &entries[i]
+		if entry.IsDir == 0 {
+			entry.SubtreeSize = entry.Size
+			entry.SubtreeFiles = 1
+			entry.SubtreeDirs = 0
+		} else {
+			entry.SubtreeSize = 0
+			entry.SubtreeFiles = 0
+			entry.SubtreeDirs = 0
+		}
+		byPath[entry.Path] = entry
+		order = append(order, entry.Path)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		di := strings.Count(order[i], string(os.PathSeparator))
+		dj := strings.Count(order[j], string(os.PathSeparator))
+		if di == dj {
+			return order[i] > order[j]
+		}
+		return di > dj
+	})
+	for _, path := range order {
+		entry := byPath[path]
+		if entry == nil || entry.Dir == path {
+			continue
+		}
+		parent := byPath[entry.Dir]
+		if parent == nil || parent.IsDir == 0 {
+			continue
+		}
+		parent.SubtreeSize += entry.SubtreeSize
+		parent.SubtreeFiles += entry.SubtreeFiles
+		if entry.IsDir == 1 {
+			parent.SubtreeDirs += entry.SubtreeDirs + 1
+		}
+	}
 }
 
 func titleCase(s string) string {
@@ -678,31 +737,6 @@ func (d *Domain) estimateRootBytes(roots []RootInfo) (map[string]int64, int64) {
 	return rootTotals, total
 }
 
-func (d *Domain) estimateRemainingRootBytes(roots []RootInfo, processedPaths map[string]struct{}) (map[string]int64, int64) {
-	rootRemaining := make(map[string]int64, len(roots))
-	var total int64
-	for _, root := range roots {
-		_ = filepath.WalkDir(root.Path, func(path string, dirEntry fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if _, done := processedPaths[filepath.Clean(path)]; done {
-				if dirEntry.IsDir() {
-					return nil
-				}
-				return nil
-			}
-			info, statErr := dirEntry.Info()
-			if statErr == nil && !info.IsDir() {
-				rootRemaining[root.Path] += info.Size()
-				total += info.Size()
-			}
-			return nil
-		})
-	}
-	return rootRemaining, total
-}
-
 func (d *Domain) checkpointPath() string {
 	return filepath.Join("_tmpdb", "reindex_state.json")
 }
@@ -715,6 +749,12 @@ func (d *Domain) saveCheckpoint(status Status) error {
 	raw, err := json.MarshalIndent(ReindexCheckpoint{
 		PriorityRoot:   status.PriorityRoot,
 		StartedAt:      status.StartedAt,
+		Resumed:        status.Resumed,
+		ResumedEntries: status.ResumedEntries,
+		EstimatedRoots: status.EstimatedRoots,
+		TotalRoots:     status.TotalRoots,
+		EstimatedFiles: status.EstimatedFiles,
+		EstimatedDirs:  status.EstimatedDirs,
 		TotalBytes:     status.TotalBytes,
 		ProcessedBytes: status.ProcessedBytes,
 		Indexed:        status.Indexed,
@@ -745,6 +785,12 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 		}
 		if ck.PriorityRoot == priority {
 			status.StartedAt = ck.StartedAt
+			status.Resumed = ck.Resumed
+			status.ResumedEntries = ck.ResumedEntries
+			status.EstimatedRoots = ck.EstimatedRoots
+			status.TotalRoots = ck.TotalRoots
+			status.EstimatedFiles = ck.EstimatedFiles
+			status.EstimatedDirs = ck.EstimatedDirs
 			status.CurrentRoot = ck.CurrentRoot
 			status.CurrentPath = ck.CurrentPath
 		}
@@ -781,6 +827,10 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 		entries = append(entries, entry)
 		processed[entry.Path] = struct{}{}
 		applyProgressEntry(&status, entry)
+	}
+	if len(entries) > 0 {
+		status.Resumed = true
+		status.ResumedEntries = len(entries)
 	}
 	return entries, processed, status, nil
 }
@@ -865,23 +915,52 @@ func applyProgressEntry(status *Status, entry model.FileEntry) {
 	}
 }
 
-func rehydrateProgressTotals(status *Status, rootRemaining map[string]int64, remainingBytes int64) {
-	status.TotalBytes = status.ProcessedBytes + remainingBytes
-	status.ProgressPct = progressPct(status.ProcessedBytes, status.TotalBytes)
+func seedProgressTotals(status *Status) {
+	status.TotalBytes = status.ProcessedBytes
 	for mi := range status.Mounts {
 		mount := &status.Mounts[mi]
-		var mountTotal int64
 		var mountProcessed int64
 		for ri := range mount.Roots {
 			root := &mount.Roots[ri]
-			root.TotalBytes = root.ProcessedBytes + rootRemaining[root.Path]
+			root.TotalBytes = root.ProcessedBytes
 			root.ProgressPct = progressPct(root.ProcessedBytes, root.TotalBytes)
-			mountTotal += root.TotalBytes
 			mountProcessed += root.ProcessedBytes
 		}
-		mount.TotalBytes = mountTotal
+		mount.TotalBytes = mountProcessed
 		mount.ProcessedBytes = mountProcessed
-		mount.ProgressPct = progressPct(mountProcessed, mountTotal)
+		mount.ProgressPct = progressPct(mountProcessed, mount.TotalBytes)
+	}
+	status.ProgressPct = progressPct(status.ProcessedBytes, status.TotalBytes)
+}
+
+func discoverProgressEntry(status *Status, rootPath string, isDir bool, size int64) {
+	if isDir {
+		status.EstimatedDirs++
+	} else {
+		status.EstimatedFiles++
+		if size > 0 {
+			status.TotalBytes += size
+		}
+	}
+	status.ProgressPct = progressPct(status.ProcessedBytes, status.TotalBytes)
+	for mi := range status.Mounts {
+		mount := &status.Mounts[mi]
+		for ri := range mount.Roots {
+			root := &mount.Roots[ri]
+			if root.Path != rootPath {
+				continue
+			}
+			if !isDir && size > 0 {
+				root.TotalBytes += size
+			}
+			root.ProgressPct = progressPct(root.ProcessedBytes, root.TotalBytes)
+			mount.TotalBytes = 0
+			for _, r := range mount.Roots {
+				mount.TotalBytes += r.TotalBytes
+			}
+			mount.ProgressPct = progressPct(mount.ProcessedBytes, mount.TotalBytes)
+			return
+		}
 	}
 }
 

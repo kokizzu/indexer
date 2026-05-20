@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"indexer/conf"
 	"indexer/model"
@@ -48,6 +49,9 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 				"rootKind":    entry.RootKind,
 				"is_dir":      entry.IsDir,
 				"size":        entry.Size,
+				"subtree_size": entry.SubtreeSize,
+				"subtree_files": entry.SubtreeFiles,
+				"subtree_dirs":  entry.SubtreeDirs,
 				"modifiedAt":  entry.ModifiedAt.Format("2006-01-02 15:04:05.999"),
 				"fingerprint": entry.Fingerprint,
 				"content":     entry.Content,
@@ -58,18 +62,61 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	case strings.Contains(query, "TRUNCATE TABLE entries"):
 		f.entries = nil
 		rw.WriteHeader(http.StatusOK)
-	case bytes.HasPrefix(bytes.TrimSpace(body), []byte("{")):
-		scanner := bufio.NewScanner(bytes.NewReader(body))
+	case strings.Contains(query, "INSERT INTO entries FORMAT JSONEachRow"):
+		lines := bytes.SplitN(body, []byte{'\n'}, 2)
+		payload := body
+		if len(lines) == 2 {
+			payload = lines[1]
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(payload))
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(bytes.TrimSpace(line)) == 0 {
 				continue
 			}
-			var entry model.FileEntry
-			_ = json.Unmarshal(line, &entry)
+			var row map[string]any
+			_ = json.Unmarshal(line, &row)
+			modifiedAt, _ := time.Parse("2006-01-02 15:04:05.999", row["modified_at"].(string))
+			entry := model.FileEntry{
+				Path:        row["path"].(string),
+				Dir:         row["dir"].(string),
+				Base:        row["base"].(string),
+				Ext:         row["ext"].(string),
+				Root:        row["root"].(string),
+				RootKind:    row["rootKind"].(string),
+				IsDir:       uint8(row["is_dir"].(float64)),
+				Size:        int64(row["size"].(float64)),
+				SubtreeSize: int64(row["subtree_size"].(float64)),
+				SubtreeFiles: int(row["subtree_files"].(float64)),
+				SubtreeDirs:  int(row["subtree_dirs"].(float64)),
+				ModifiedAt:  modifiedAt.UTC(),
+				Fingerprint: row["fingerprint"].(string),
+				Content:     row["content"].(string),
+			}
 			f.entries = append(f.entries, entry)
 		}
 		rw.WriteHeader(http.StatusOK)
+	case strings.Contains(query, "SELECT path, base, is_dir, size, subtree_size, subtree_files, subtree_dirs"):
+		for _, entry := range f.entries {
+			if strings.Contains(query, " WHERE dir = ") && !strings.Contains(query, entry.Dir) {
+				continue
+			}
+			if strings.Contains(query, " WHERE path IN (") && !strings.Contains(query, entry.Path) {
+				continue
+			}
+			raw, _ := json.Marshal(map[string]any{
+				"path":         entry.Path,
+				"base":         entry.Base,
+				"is_dir":       entry.IsDir,
+				"size":         entry.Size,
+				"subtree_size": entry.SubtreeSize,
+				"subtree_files": entry.SubtreeFiles,
+				"subtree_dirs":  entry.SubtreeDirs,
+				"modifiedAt":   entry.ModifiedAt.Format("2006-01-02 15:04:05.999"),
+			})
+			_, _ = rw.Write(raw)
+			_, _ = rw.Write([]byte("\n"))
+		}
 	case strings.Contains(query, "SELECT path, base, root, rootKind"):
 		needle := extractNeedle(query)
 		for _, entry := range f.entries {
@@ -146,6 +193,11 @@ func TestDummyDirectoryCanBeIndexedAndSearched(t *testing.T) {
 	if len(dirResults) == 0 {
 		t.Fatal("expected directory search result by folder name")
 	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Path, ".txt") {
+			t.Fatalf("non-video file should not be indexed: %s", entry.Path)
+		}
+	}
 
 	if err := os.WriteFile(changingFile, []byte("video-updated"), 0o644); err != nil {
 		t.Fatal(err)
@@ -209,6 +261,9 @@ ORDER BY path;`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(unchangedDir, "episode-01.mkv"), []byte("stable-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unchangedDir, "notes.txt"), []byte("ignore-me"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(changingFile, []byte("video"), 0o644); err != nil {

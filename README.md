@@ -38,7 +38,7 @@ UNSORTED_MOVIES="
 "
 ```
 
-Secrets or machine-specific overrides should go into `.env.override`. It is loaded after `.env`, overrides matching keys, and is ignored by Git.
+Secrets or machine-specific overrides should go into `.env.override` in the project root. It is loaded after `.env`, overrides matching keys, and is ignored by Git. A committed template is provided at `.env.override.example`.
 
 Example `.env.override`:
 

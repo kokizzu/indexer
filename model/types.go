@@ -11,6 +11,9 @@ type FileEntry struct {
 	RootKind    string    `json:"rootKind"`
 	IsDir       uint8     `json:"is_dir"`
 	Size        int64     `json:"size"`
+	SubtreeSize int64     `json:"subtree_size"`
+	SubtreeFiles int      `json:"subtree_files"`
+	SubtreeDirs  int      `json:"subtree_dirs"`
 	ModifiedAt  time.Time `json:"modified_at"`
 	Fingerprint string    `json:"fingerprint"`
 	Content     string    `json:"content"`
@@ -39,6 +42,8 @@ type BrowseEntry struct {
 	Base       string `json:"base"`
 	IsDir      bool   `json:"isDir"`
 	Size       int64  `json:"size"`
+	FileCount  int    `json:"fileCount"`
+	DirCount   int    `json:"dirCount"`
 	ModifiedAt string `json:"modifiedAt"`
 }
 

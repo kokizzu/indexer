@@ -83,13 +83,22 @@ func (c *CLI) Run(args []string) int {
 func (c *CLI) printProgress(done <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	resumeShown := false
 	for {
 		select {
 		case <-done:
 			return
 		case <-ticker.C:
 			st := c.Domain.Status()
-			fmt.Fprintf(c.Stdout, "\rprogress %6.2f%% data=%s/%s indexed=%d files=%d dirs=%d current=%s", st.ProgressPct, humanBytes(st.ProcessedBytes), humanBytes(st.TotalBytes), st.Indexed, st.Files, st.Directories, st.CurrentPath)
+			if st.Resumed && !resumeShown {
+				fmt.Fprintf(c.Stdout, "resuming restoredEntries=%d restoredFiles=%d restoredDirs=%d restoredData=%s from=%s\n", st.ResumedEntries, st.Files, st.Directories, humanBytes(st.ProcessedBytes), st.CurrentPath)
+				resumeShown = true
+			}
+			if st.Indexed == 0 && st.ProcessedBytes == 0 {
+				fmt.Fprintf(c.Stdout, "\restimating resumed=%t workers=%d active=%d roots=%d/%d estData=%s estFiles=%d estDirs=%d current=%s", st.Resumed, st.WorkerCount, st.ActiveWorkers, st.EstimatedRoots, st.TotalRoots, humanBytes(st.TotalBytes), st.EstimatedFiles, st.EstimatedDirs, st.CurrentPath)
+				continue
+			}
+			fmt.Fprintf(c.Stdout, "\rprogress %6.2f%% resumed=%t workers=%d active=%d roots=%d/%d estData=%s data=%s/%s indexed=%d files=%d dirs=%d current=%s", st.ProgressPct, st.Resumed, st.WorkerCount, st.ActiveWorkers, st.EstimatedRoots, st.TotalRoots, humanBytes(st.TotalBytes), humanBytes(st.ProcessedBytes), humanBytes(st.TotalBytes), st.Indexed, st.Files, st.Directories, st.CurrentPath)
 		}
 	}
 }

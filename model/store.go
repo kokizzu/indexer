@@ -23,6 +23,8 @@ type Store struct {
 	client *http.Client
 }
 
+const clickHouseTimeLayout = "2006-01-02 15:04:05.999"
+
 func NewStore(cfg conf.Config, client *http.Client) *Store {
 	return &Store{cfg: cfg, client: client}
 }
@@ -100,7 +102,7 @@ func (s *Store) LoadExistingEntries() (map[string]string, error) {
 }
 
 func (s *Store) LoadEntries() ([]FileEntry, error) {
-	rows, err := s.Query("SELECT path, dir, base, ext, root, rootKind, is_dir, size, toString(modified_at) AS modifiedAt, fingerprint, content FROM entries FORMAT JSONEachRow")
+	rows, err := s.Query("SELECT path, dir, base, ext, root, rootKind, is_dir, size, subtree_size, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt, fingerprint, content FROM entries FORMAT JSONEachRow")
 	if err != nil {
 		if strings.Contains(err.Error(), "doesn't exist") {
 			return []FileEntry{}, nil
@@ -109,7 +111,7 @@ func (s *Store) LoadEntries() ([]FileEntry, error) {
 	}
 	out := make([]FileEntry, 0, len(rows))
 	for _, row := range rows {
-		modifiedAt, _ := time.Parse("2006-01-02 15:04:05.999", X.ToS(row["modifiedAt"]))
+		modifiedAt, _ := time.Parse(clickHouseTimeLayout, X.ToS(row["modifiedAt"]))
 		out = append(out, FileEntry{
 			Path:        X.ToS(row["path"]),
 			Dir:         X.ToS(row["dir"]),
@@ -119,6 +121,9 @@ func (s *Store) LoadEntries() ([]FileEntry, error) {
 			RootKind:    X.ToS(row["rootKind"]),
 			IsDir:       uint8(X.ToI(row["is_dir"])),
 			Size:        X.ToI(row["size"]),
+			SubtreeSize: X.ToI(row["subtree_size"]),
+			SubtreeFiles: int(X.ToI(row["subtree_files"])),
+			SubtreeDirs:  int(X.ToI(row["subtree_dirs"])),
 			ModifiedAt:  modifiedAt.UTC(),
 			Fingerprint: X.ToS(row["fingerprint"]),
 			Content:     X.ToS(row["content"]),
@@ -142,7 +147,10 @@ func (s *Store) ReplaceEntries(entries []FileEntry) error {
 		}
 		var b strings.Builder
 		for _, entry := range entries[start:end] {
-			raw, _ := json.Marshal(entry)
+			raw, err := marshalEntryForClickHouse(entry)
+			if err != nil {
+				return err
+			}
 			b.Write(raw)
 			b.WriteByte('\n')
 		}
@@ -252,6 +260,51 @@ func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
 	return res, nil
 }
 
+func (s *Store) Browse(path string, roots []string) ([]BrowseEntry, error) {
+	var query string
+	if strings.TrimSpace(path) == "" {
+		parts := make([]string, 0, len(roots))
+		for _, root := range roots {
+			root = filepath.Clean(strings.TrimSpace(root))
+			if root != "" {
+				parts = append(parts, quoteSQL(root))
+			}
+		}
+		if len(parts) == 0 {
+			return nil, nil
+		}
+		query = "SELECT path, base, is_dir, size, subtree_size, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt FROM entries WHERE path IN (" + strings.Join(parts, ",") + ") ORDER BY path FORMAT JSONEachRow"
+	} else {
+		query = "SELECT path, base, is_dir, size, subtree_size, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt FROM entries WHERE dir = " + quoteSQL(filepath.Clean(path)) + " ORDER BY is_dir DESC, base ASC FORMAT JSONEachRow"
+	}
+	rows, err := s.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BrowseEntry, 0, len(rows))
+	for _, row := range rows {
+		isDir := uint8(X.ToI(row["is_dir"])) == 1
+		size := X.ToI(row["size"])
+		fileCount := 1
+		dirCount := 0
+		if isDir {
+			size = X.ToI(row["subtree_size"])
+			fileCount = int(X.ToI(row["subtree_files"]))
+			dirCount = int(X.ToI(row["subtree_dirs"]))
+		}
+		out = append(out, BrowseEntry{
+			Path:       X.ToS(row["path"]),
+			Base:       X.ToS(row["base"]),
+			IsDir:      isDir,
+			Size:       size,
+			FileCount:  fileCount,
+			DirCount:   dirCount,
+			ModifiedAt: X.ToS(row["modifiedAt"]),
+		})
+	}
+	return out, nil
+}
+
 func searchTokens(q string) []string {
 	q = strings.ToLower(strings.TrimSpace(q))
 	if q == "" {
@@ -335,12 +388,10 @@ func (s *Store) ExecRaw(query, db string) error {
 }
 
 func (s *Store) Insert(query, body string) error {
-	req, err := s.newRequest(query, s.cfg.ClickHouseDB)
+	req, err := s.newRequestWithBody(query, body, s.cfg.ClickHouseDB)
 	if err != nil {
 		return err
 	}
-	req.Body = io.NopCloser(strings.NewReader(body))
-	req.ContentLength = int64(len(body))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
@@ -383,11 +434,19 @@ func (s *Store) Query(query string) ([]map[string]any, error) {
 }
 
 func (s *Store) newRequest(query, db string) (*http.Request, error) {
+	return s.newRequestWithBody(query, "", db)
+}
+
+func (s *Store) newRequestWithBody(query, body, db string) (*http.Request, error) {
 	chURL := s.cfg.ClickHouseURL + "/?wait_end_of_query=1"
 	if db != "" {
 		chURL += "&database=" + db
 	}
-	req, err := http.NewRequest(http.MethodPost, chURL, strings.NewReader(query))
+	payload := query
+	if body != "" {
+		payload += "\n" + body
+	}
+	req, err := http.NewRequest(http.MethodPost, chURL, strings.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -427,4 +486,23 @@ func toStringSlice(v any) []string {
 		out = append(out, X.ToS(item))
 	}
 	return out
+}
+
+func marshalEntryForClickHouse(entry FileEntry) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"path":        entry.Path,
+		"dir":         entry.Dir,
+		"base":        entry.Base,
+		"ext":         entry.Ext,
+		"root":        entry.Root,
+		"rootKind":    entry.RootKind,
+		"is_dir":      entry.IsDir,
+		"size":        entry.Size,
+		"subtree_size": entry.SubtreeSize,
+		"subtree_files": entry.SubtreeFiles,
+		"subtree_dirs":  entry.SubtreeDirs,
+		"modified_at": entry.ModifiedAt.UTC().Format(clickHouseTimeLayout),
+		"fingerprint": entry.Fingerprint,
+		"content":     entry.Content,
+	})
 }

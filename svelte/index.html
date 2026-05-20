@@ -6,14 +6,18 @@
   <title>Indexer</title>
   <style>
     :root {
-      --bg: #f5f0e6;
-      --bg2: #efe6d6;
-      --card: rgba(255,255,255,0.82);
-      --ink: #231b18;
-      --muted: #78665d;
-      --line: #d8cab9;
-      --accent: #b44f2c;
-      --accent2: #264653;
+      --bg: #09111b;
+      --bg2: #0f1724;
+      --panel: rgba(17, 25, 40, 0.9);
+      --panel-2: rgba(12, 18, 30, 0.92);
+      --line: rgba(138, 163, 196, 0.18);
+      --ink: #e7eef8;
+      --muted: #93a6bf;
+      --accent: #52c7b8;
+      --accent-2: #6b8cff;
+      --warn: #e36b6b;
+      --gold: #e4c26a;
+      --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
     }
     * { box-sizing: border-box; }
     body {
@@ -21,131 +25,423 @@
       font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(180,79,44,0.14), transparent 28%),
-        radial-gradient(circle at top right, rgba(38,70,83,0.12), transparent 25%),
+        radial-gradient(circle at top left, rgba(82,199,184,0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(107,140,255,0.14), transparent 25%),
         linear-gradient(180deg, var(--bg), var(--bg2));
+      min-height: 100vh;
     }
-    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
-    .hero { display: grid; gap: 18px; grid-template-columns: 1.3fr 0.7fr; margin-bottom: 20px; }
-    .panel, .heroCard { background: var(--card); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 12px 36px rgba(35,27,24,0.08); }
-    .heroCard { padding: 24px; }
-    h1, h2 { margin: 0 0 12px; font-family: Georgia, "Times New Roman", serif; }
-    h1 { font-size: 44px; line-height: 1; }
-    p { color: var(--muted); line-height: 1.5; }
-    .grid { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
-    .panel { padding: 20px; }
+    .wrap { max-width: 1440px; margin: 0 auto; padding: 24px; }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+    .cardInner { padding: 22px; }
+    h1, h2, h3 { margin: 0; }
+    h1 {
+      font-size: 44px;
+      letter-spacing: -0.03em;
+      font-family: "IBM Plex Serif", Georgia, serif;
+    }
+    h2 {
+      font-size: 18px;
+      margin-bottom: 14px;
+      font-family: "IBM Plex Serif", Georgia, serif;
+    }
+    p { color: var(--muted); line-height: 1.55; }
+    .heroMeta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .metric {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line);
+    }
+    .metricLabel {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .metricValue {
+      font-size: 20px;
+      font-weight: 700;
+    }
     .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    input, select, textarea, button { font: inherit; border-radius: 12px; border: 1px solid var(--line); padding: 11px 14px; }
-    input, select, textarea { background: rgba(255,255,255,0.9); color: var(--ink); width: 100%; }
-    textarea { min-height: 96px; resize: vertical; }
-    button { cursor: pointer; background: var(--accent); color: white; border: 0; font-weight: 600; }
-    button.secondary { background: var(--accent2); }
-    button.warn { background: #7f1d1d; }
-    .status, .list { font-family: "IBM Plex Mono", monospace; font-size: 13px; background: rgba(255,255,255,0.72); border-radius: 14px; border: 1px solid var(--line); }
-    .status { white-space: pre-wrap; padding: 14px; min-height: 130px; }
-    .list { max-height: 420px; overflow: auto; }
-    .item { padding: 12px 14px; border-bottom: 1px solid rgba(216,202,185,0.55); }
-    .item:last-child { border-bottom: 0; }
-    .meta { color: var(--muted); font-size: 13px; margin-top: 6px; word-break: break-all; }
-    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; background: rgba(180,79,44,0.12); color: var(--accent); margin-right: 6px; }
-    .progressWrap { margin-top: 14px; }
-    .progressBar { height: 18px; border-radius: 999px; background: rgba(38,70,83,0.12); overflow: hidden; border: 1px solid var(--line); }
-    .progressFill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #dd7f4f); transition: width .25s ease; }
-    .progressMeta { margin-top: 8px; color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
-    @media (max-width: 900px) { .hero, .grid { grid-template-columns: 1fr; } h1 { font-size: 36px; } }
+    input, select, textarea, button {
+      font: inherit;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 11px 14px;
+    }
+    input, select, textarea {
+      background: rgba(255,255,255,0.04);
+      color: var(--ink);
+      width: 100%;
+    }
+    textarea { min-height: 108px; resize: vertical; }
+    button {
+      cursor: pointer;
+      border: 0;
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, var(--accent), #348e93);
+    }
+    button.secondary {
+      background: linear-gradient(135deg, var(--accent-2), #4d63ba);
+    }
+    button.ghost {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+    button.warn {
+      background: linear-gradient(135deg, var(--warn), #b73d3d);
+    }
+    .progressWrap { margin-top: 16px; }
+    .progressBar {
+      height: 18px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progressFill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--gold));
+      transition: width .2s ease;
+    }
+    .progressMeta {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: "IBM Plex Mono", monospace;
+      white-space: pre-wrap;
+    }
+    .statusBox, .treePane, .resultPane {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+    }
+    .statusBox {
+      min-height: 280px;
+      padding: 16px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      color: #c7d6ea;
+    }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin: 20px 0 14px;
+      flex-wrap: wrap;
+    }
+    .tabBtn {
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .tabBtn.active {
+      background: linear-gradient(135deg, rgba(82,199,184,0.2), rgba(107,140,255,0.16));
+      color: var(--ink);
+      border-color: rgba(82,199,184,0.35);
+    }
+    .tabPane { display: none; }
+    .tabPane.active { display: block; }
+    .workspace {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 18px;
+    }
+    .treePane { padding: 14px; min-height: 620px; }
+    .treeHeader, .resultHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .treeScroll, .resultScroll {
+      max-height: 560px;
+      overflow: auto;
+      border-radius: 14px;
+    }
+    .treeNode {
+      border-radius: 12px;
+      margin-bottom: 4px;
+    }
+    .treeRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .treeRow:hover { background: rgba(255,255,255,0.05); }
+    .treeRow.active { background: rgba(82,199,184,0.12); }
+    .treeIndent { display: inline-block; width: 16px; }
+    .twisty { width: 16px; color: var(--muted); }
+    .treeName { flex: 1; }
+    .treeMeta { color: var(--muted); font-size: 11px; }
+    .children { margin-left: 18px; border-left: 1px dashed rgba(255,255,255,0.08); padding-left: 8px; }
+    .resultPane { padding: 14px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #121b2b;
+      color: #b8c8df;
+      z-index: 1;
+    }
+    .mono { font-family: "IBM Plex Mono", monospace; }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      background: rgba(82,199,184,0.12);
+      color: var(--accent);
+      margin-right: 6px;
+    }
+    .empty {
+      padding: 20px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+    }
+    @media (max-width: 1100px) {
+      .hero, .workspace, .split { grid-template-columns: 1fr; }
+      .heroMeta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <section class="hero">
-      <div class="heroCard">
-        <h1>Indexer</h1>
-        <p>Local-only media indexer with ClickHouse search, resumable reindex, duplicate detection, rename suggestions, and confirmed file operations.</p>
-        <div class="row">
-          <button onclick="startReindex()">Start Reindex</button>
-          <input id="priorityRoot" placeholder="Priority root, optional">
+      <div class="card">
+        <div class="cardInner">
+          <h1>Indexer</h1>
+          <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p>
+          <div class="row" style="margin-top:14px">
+            <button onclick="startReindex()">Start Reindex</button>
+            <input id="priorityRoot" placeholder="Priority roots, comma separated">
+          </div>
+          <div class="progressWrap">
+            <div class="progressBar"><div id="progressFill" class="progressFill"></div></div>
+            <div id="progressMeta" class="progressMeta">idle</div>
+          </div>
+          <div class="heroMeta">
+            <div class="metric"><div class="metricLabel">Workers</div><div id="metricWorkers" class="metricValue">0 / 0</div></div>
+            <div class="metric"><div class="metricLabel">Roots</div><div id="metricRoots" class="metricValue">0 / 0</div></div>
+            <div class="metric"><div class="metricLabel">Files / Dirs</div><div id="metricKinds" class="metricValue">0 / 0</div></div>
+            <div class="metric"><div class="metricLabel">Indexed Size</div><div id="metricTotalSize" class="metricValue">0 B</div></div>
+          </div>
         </div>
-        <div class="progressWrap">
-          <div class="progressBar"><div id="progressFill" class="progressFill"></div></div>
-          <div id="progressMeta" class="progressMeta">0.00% by size</div>
-        </div>
-        <div id="treeProgress" class="status" style="margin-top:14px"></div>
       </div>
-      <div class="heroCard">
-        <h2>Status</h2>
-        <div id="status" class="status">loading...</div>
+      <div class="card">
+        <div class="cardInner">
+          <h2>Status</h2>
+          <div id="status" class="statusBox">loading...</div>
+        </div>
       </div>
     </section>
 
-    <section class="grid">
-      <div class="panel">
-        <h2>Browse</h2>
-        <div class="row">
-          <input id="browsePath" placeholder="Leave empty to list configured roots">
-          <button class="secondary" onclick="loadBrowse()">Browse</button>
-        </div>
-        <div id="browseResults" class="list"></div>
-      </div>
+    <div class="tabs">
+      <button class="tabBtn active" data-tab="search" onclick="switchTab('search', event)">Search</button>
+      <button class="tabBtn" data-tab="browse" onclick="switchTab('browse', event)">Browse</button>
+      <button class="tabBtn" data-tab="duplicates" onclick="switchTab('duplicates', event)">Duplicates</button>
+      <button class="tabBtn" data-tab="manage" onclick="switchTab('manage', event)">Manage</button>
+    </div>
 
-      <div class="panel">
-        <h2>Search</h2>
-        <div class="row">
-          <input id="searchQuery" placeholder="title, alt title, episode tag, path">
-          <select id="searchKind">
-            <option value="">all</option>
-            <option value="dir">directories</option>
-            <option value="file">files</option>
-          </select>
-          <button class="secondary" onclick="runSearch()">Search</button>
+    <section id="tab-search" class="tabPane active">
+      <div class="card">
+        <div class="cardInner">
+          <div class="row">
+            <input id="searchQuery" placeholder="Search directory names and video filenames">
+            <select id="searchKind">
+              <option value="">all</option>
+              <option value="dir">directories</option>
+              <option value="file">video files</option>
+            </select>
+            <button class="secondary" onclick="runSearch()">Search</button>
+          </div>
+          <div class="resultPane" style="margin-top:16px">
+            <div class="resultHeader">
+              <h2>Search Results</h2>
+              <div id="searchCount" class="mono" style="color:var(--muted)">0 rows</div>
+            </div>
+            <div class="resultScroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Display Path</th>
+                    <th>Root</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                  </tr>
+                </thead>
+                <tbody id="searchTable"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div id="searchResults" class="list"></div>
       </div>
+    </section>
 
-      <div class="panel">
-        <h2>Duplicates</h2>
-        <p>Fingerprints use file size plus sampled content from the start and end of each file.</p>
-        <div class="row">
-          <button class="secondary" onclick="loadDuplicates()">Refresh Duplicates</button>
+    <section id="tab-browse" class="tabPane">
+      <div class="workspace">
+        <div class="treePane">
+          <div class="treeHeader">
+            <h2>Tree</h2>
+            <div class="row" style="margin:0">
+              <button class="ghost" onclick="reloadTree()">Reload</button>
+            </div>
+          </div>
+          <div id="browseTree" class="treeScroll"></div>
         </div>
-        <div id="duplicates" class="list"></div>
+        <div class="resultPane">
+          <div class="resultHeader">
+            <div>
+              <h2 id="browseTitle">Directory Listing</h2>
+              <div id="browseSubtitle" class="mono" style="color:var(--muted); margin-top:4px"></div>
+            </div>
+          </div>
+          <div class="resultScroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Contents</th>
+                  <th>Total Size</th>
+                  <th>Modified</th>
+                  <th>Path</th>
+                </tr>
+              </thead>
+              <tbody id="browseTable"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="panel">
-        <h2>Rename Suggestion</h2>
-        <div class="row">
-          <input id="suggestPath" placeholder="/path/to/directory">
-          <button onclick="suggestRename()">Suggest</button>
+    <section id="tab-duplicates" class="tabPane">
+      <div class="card">
+        <div class="cardInner">
+          <div class="row">
+            <button class="secondary" onclick="loadDuplicates()">Refresh Duplicates</button>
+          </div>
+          <div class="resultPane" style="margin-top:16px">
+            <div class="resultHeader">
+              <h2>Duplicate Groups</h2>
+              <div id="dupCount" class="mono" style="color:var(--muted)">0 groups</div>
+            </div>
+            <div class="resultScroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Copies</th>
+                    <th>Size</th>
+                    <th>Fingerprint</th>
+                    <th>Paths</th>
+                  </tr>
+                </thead>
+                <tbody id="dupTable"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div id="suggestResult" class="status"></div>
       </div>
+    </section>
 
-      <div class="panel">
-        <h2>Manage</h2>
-        <p>All destructive operations require the configured password and <code>CONFIRM</code>.</p>
-        <textarea id="managePayload" placeholder='{"password":"example","srcPath":"/from","dstDir":"/to","confirm":"CONFIRM"}'></textarea>
-        <div class="row">
-          <button onclick="callManage('/api/move')">Move</button>
-          <button class="secondary" onclick="callManage('/api/rename')">Rename</button>
-          <button class="warn" onclick="callManage('/api/delete')">Delete</button>
+    <section id="tab-manage" class="tabPane">
+      <div class="split">
+        <div class="card">
+          <div class="cardInner">
+            <h2>Rename Suggestion</h2>
+            <div class="row">
+              <input id="suggestPath" placeholder="/path/to/directory">
+              <button onclick="suggestRename()">Suggest</button>
+            </div>
+            <div id="suggestResult" class="statusBox" style="margin-top:14px; min-height:220px"></div>
+          </div>
         </div>
-        <div id="manageResult" class="status"></div>
+        <div class="card">
+          <div class="cardInner">
+            <h2>Manage</h2>
+            <p>Destructive operations require the configured password and <code>CONFIRM</code>.</p>
+            <textarea id="managePayload" placeholder='{"password":"example","srcPath":"/from","dstDir":"/to","confirm":"CONFIRM"}'></textarea>
+            <div class="row" style="margin-top:12px">
+              <button onclick="callManage('/api/move')">Move</button>
+              <button class="secondary" onclick="callManage('/api/rename')">Rename</button>
+              <button class="warn" onclick="callManage('/api/delete')">Delete</button>
+            </div>
+            <div id="manageResult" class="statusBox" style="margin-top:14px; min-height:220px"></div>
+          </div>
+        </div>
       </div>
     </section>
   </div>
 
   <script>
+    const browseState = {
+      roots: [],
+      expanded: new Set(),
+      loaded: new Map(),
+      selectedPath: ''
+    }
+
     async function getJSON(url, options = {}) {
       const res = await fetch(url, options)
       const text = await res.text()
       if (!res.ok) throw new Error(text)
       return text ? JSON.parse(text) : {}
     }
-    function renderItems(el, items, render) {
-      el.innerHTML = items.length ? items.map(render).join('') : '<div class="item">No data</div>'
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
     }
+
     function formatBytes(bytes) {
       if (!bytes) return '0 B'
-      const units = ['B','KB','MB','GB','TB']
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
       let value = bytes
       let idx = 0
       while (value >= 1024 && idx < units.length - 1) {
@@ -154,62 +450,163 @@
       }
       return value.toFixed(idx === 0 ? 0 : 2) + ' ' + units[idx]
     }
+
+    function switchTab(tab, event) {
+      document.querySelectorAll('.tabBtn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab))
+      document.querySelectorAll('.tabPane').forEach(pane => pane.classList.toggle('active', pane.id === 'tab-' + tab))
+    }
+
     async function refreshStatus() {
       try {
         const s = await getJSON('/api/status')
-        document.getElementById('status').textContent = JSON.stringify(s, null, 2)
         const pct = Number(s.progressPct || 0)
         document.getElementById('progressFill').style.width = pct.toFixed(2) + '%'
-        document.getElementById('progressMeta').textContent = pct.toFixed(2) + '% by size • ' + formatBytes(s.processedBytes || 0) + ' / ' + formatBytes(s.totalBytes || 0)
-        document.getElementById('treeProgress').innerHTML = (s.mounts || []).map(mount =>
-          '<div style="margin-bottom:14px">' +
-            '<div><strong>' + (mount.mountPoint || '(unknown mount)') + '</strong> ' + Number(mount.progressPct || 0).toFixed(2) + '% • ' + formatBytes(mount.processedBytes || 0) + ' / ' + formatBytes(mount.totalBytes || 0) + '</div>' +
-            '<div class="progressBar" style="margin:6px 0 8px"><div class="progressFill" style="width:' + Number(mount.progressPct || 0).toFixed(2) + '%"></div></div>' +
-            (mount.roots || []).map(root =>
-              '<div style="padding-left:14px; margin-bottom:8px">' +
-                '<div><span class="pill">' + root.kind + '</span>' + root.path + ' ' + Number(root.progressPct || 0).toFixed(2) + '% • ' + formatBytes(root.processedBytes || 0) + ' / ' + formatBytes(root.totalBytes || 0) + '</div>' +
-                '<div class="progressBar" style="margin-top:4px"><div class="progressFill" style="width:' + Number(root.progressPct || 0).toFixed(2) + '%"></div></div>' +
-              '</div>'
-            ).join('') +
-          '</div>'
-        ).join('')
+        document.getElementById('metricWorkers').textContent = (s.activeWorkers || 0) + ' / ' + (s.workerCount || 0)
+        document.getElementById('metricTotalSize').textContent = formatBytes(s.totalBytes || 0)
+        document.getElementById('metricKinds').textContent = (s.files || 0) + ' / ' + (s.directories || 0)
+        document.getElementById('metricRoots').textContent = (s.estimatedRoots || 0) + ' / ' + (s.totalRoots || 0)
+        document.getElementById('progressMeta').textContent =
+          'resumed=' + Boolean(s.resumed) +
+          '  workers=' + (s.activeWorkers || 0) + '/' + (s.workerCount || 0) +
+          '  roots=' + (s.estimatedRoots || 0) + '/' + (s.totalRoots || 0) +
+          '\nestimated=' + formatBytes(s.totalBytes || 0) +
+          '  processed=' + formatBytes(s.processedBytes || 0) +
+          '  indexed=' + (s.indexed || 0) +
+          '  files=' + (s.files || 0) +
+          '  dirs=' + (s.directories || 0) +
+          '\ncurrent=' + (s.currentPath || '')
+        document.getElementById('status').textContent = JSON.stringify(s, null, 2)
       } catch (err) {
         document.getElementById('status').textContent = String(err)
       }
     }
+
     async function startReindex() {
       const priority = document.getElementById('priorityRoot').value.trim()
       const url = priority ? '/api/reindex?priority=' + encodeURIComponent(priority) : '/api/reindex'
       await getJSON(url, { method: 'POST' })
       refreshStatus()
     }
+
     async function runSearch() {
       const q = document.getElementById('searchQuery').value.trim()
       const kind = document.getElementById('searchKind').value
-      const res = await getJSON('/api/search?q=' + encodeURIComponent(q) + '&kind=' + encodeURIComponent(kind))
-      renderItems(document.getElementById('searchResults'), res, item =>
-        '<div class="item">' +
-          '<div><span class="pill">' + (item.isDir ? 'DIR' : 'FILE') + '</span><span class="pill">' + item.rootKind + '</span>' + item.base + '</div>' +
-          '<div class="meta">' + (item.displayPath || item.base) + '<br>size=' + item.size + ' modified=' + item.modifiedAt + '</div>' +
-        '</div>')
+      const rows = await getJSON('/api/search?q=' + encodeURIComponent(q) + '&kind=' + encodeURIComponent(kind))
+      document.getElementById('searchCount').textContent = rows.length + ' rows'
+      const tbody = document.getElementById('searchTable')
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No results</td></tr>'
+        return
+      }
+      tbody.innerHTML = rows.map(item =>
+        '<tr>' +
+          '<td><span class="pill">' + (item.isDir ? 'DIR' : 'FILE') + '</span></td>' +
+          '<td>' + escapeHtml(item.base) + '</td>' +
+          '<td class="mono">' + escapeHtml(item.displayPath || item.path || '') + '</td>' +
+          '<td>' + escapeHtml(item.rootKind || '') + ' / ' + escapeHtml(item.root || '') + '</td>' +
+          '<td>' + formatBytes(item.size || 0) + '</td>' +
+          '<td class="mono">' + escapeHtml(item.modifiedAt || '') + '</td>' +
+        '</tr>'
+      ).join('')
     }
-    async function loadBrowse() {
-      const path = document.getElementById('browsePath').value.trim()
-      const res = await getJSON('/api/browse?path=' + encodeURIComponent(path))
-      renderItems(document.getElementById('browseResults'), res, item =>
-        '<div class="item">' +
-          '<div><span class="pill">' + (item.isDir ? 'DIR' : 'FILE') + '</span>' + item.base + '</div>' +
-          '<div class="meta">' + item.path + '<br>size=' + item.size + ' modified=' + item.modifiedAt + '</div>' +
-        '</div>')
+
+    async function reloadTree() {
+      browseState.expanded.clear()
+      browseState.loaded.clear()
+      browseState.selectedPath = ''
+      browseState.roots = await getJSON('/api/browse')
+      renderTree()
+      if (browseState.roots.length) {
+        await selectBrowsePath(browseState.roots[0].path)
+      }
     }
+
+    async function toggleNode(path) {
+      if (browseState.expanded.has(path)) {
+        browseState.expanded.delete(path)
+        renderTree()
+        return
+      }
+      browseState.expanded.add(path)
+      if (!browseState.loaded.has(path)) {
+        const rows = await getJSON('/api/browse?path=' + encodeURIComponent(path))
+        browseState.loaded.set(path, rows.filter(item => item.isDir))
+      }
+      renderTree()
+    }
+
+    function renderNode(item, depth) {
+      const path = item.path
+      const expanded = browseState.expanded.has(path)
+      const children = browseState.loaded.get(path) || []
+      const active = browseState.selectedPath === path
+      return (
+        '<div class="treeNode">' +
+          '<div class="treeRow' + (active ? ' active' : '') + '" onclick="selectNode(\'' + encodeURIComponent(path) + '\')">' +
+            '<span class="treeIndent" style="width:' + (depth * 14) + 'px"></span>' +
+            '<span class="twisty" onclick="event.stopPropagation(); toggleNode(\'' + encodeURIComponent(path) + '\')">' + (expanded ? '▾' : '▸') + '</span>' +
+            '<span class="treeName">' + escapeHtml(item.base) + '</span>' +
+            '<span class="treeMeta">' + (item.isDir ? ((item.fileCount || 0) + 'f ' + (item.dirCount || 0) + 'd • ') : '') + formatBytes(item.size || 0) + '</span>' +
+          '</div>' +
+          (expanded ? '<div class="children">' + children.map(child => renderNode(child, depth + 1)).join('') + '</div>' : '') +
+        '</div>'
+      )
+    }
+
+    function renderTree() {
+      const el = document.getElementById('browseTree')
+      if (!browseState.roots.length) {
+        el.innerHTML = '<div class="empty">No configured roots</div>'
+        return
+      }
+      el.innerHTML = browseState.roots.map(root => renderNode(root, 0)).join('')
+    }
+
+    async function selectNode(encodedPath) {
+      await selectBrowsePath(decodeURIComponent(encodedPath))
+    }
+
+    async function selectBrowsePath(path) {
+      browseState.selectedPath = path
+      renderTree()
+      const rows = await getJSON('/api/browse?path=' + encodeURIComponent(path))
+      document.getElementById('browseTitle').textContent = 'Directory Listing'
+      document.getElementById('browseSubtitle').textContent = path
+      const tbody = document.getElementById('browseTable')
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Empty directory</td></tr>'
+        return
+      }
+      tbody.innerHTML = rows.map(item =>
+        '<tr>' +
+          '<td>' + (item.isDir ? '<button class="ghost" onclick="selectNode(\'' + encodeURIComponent(item.path) + '\')">Open</button> ' : '') + escapeHtml(item.base) + '</td>' +
+          '<td>' + (item.isDir ? 'DIR' : 'FILE') + '</td>' +
+          '<td>' + (item.isDir ? ((item.fileCount || 0) + ' files, ' + (item.dirCount || 0) + ' dirs') : '1 file') + '</td>' +
+          '<td>' + formatBytes(item.size || 0) + '</td>' +
+          '<td class="mono">' + escapeHtml(item.modifiedAt || '') + '</td>' +
+          '<td class="mono">' + escapeHtml(item.path || '') + '</td>' +
+        '</tr>'
+      ).join('')
+    }
+
     async function loadDuplicates() {
-      const res = await getJSON('/api/duplicates')
-      renderItems(document.getElementById('duplicates'), res, item =>
-        '<div class="item">' +
-          '<div><span class="pill">' + item.paths.length + ' copies</span>' + item.size + ' bytes</div>' +
-          '<div class="meta">' + item.paths.join('<br>') + '</div>' +
-        '</div>')
+      const rows = await getJSON('/api/duplicates')
+      document.getElementById('dupCount').textContent = rows.length + ' groups'
+      const tbody = document.getElementById('dupTable')
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">No duplicate groups</td></tr>'
+        return
+      }
+      tbody.innerHTML = rows.map(item =>
+        '<tr>' +
+          '<td>' + (item.paths || []).length + '</td>' +
+          '<td>' + formatBytes(item.size || 0) + '</td>' +
+          '<td class="mono">' + escapeHtml(item.fingerprint || '') + '</td>' +
+          '<td class="mono">' + (item.paths || []).map(p => escapeHtml(p)).join('<br>') + '</td>' +
+        '</tr>'
+      ).join('')
     }
+
     async function suggestRename() {
       const path = document.getElementById('suggestPath').value.trim()
       const res = await getJSON('/api/suggest', {
@@ -219,6 +616,7 @@
       })
       document.getElementById('suggestResult').textContent = JSON.stringify(res, null, 2)
     }
+
     async function callManage(url) {
       try {
         const body = JSON.parse(document.getElementById('managePayload').value)
@@ -232,8 +630,9 @@
         document.getElementById('manageResult').textContent = String(err)
       }
     }
+
     refreshStatus()
-    loadBrowse()
+    reloadTree()
     setInterval(refreshStatus, 3000)
   </script>
 </body>
