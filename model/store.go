@@ -219,12 +219,20 @@ func (s *Store) RestoreEntries(path string) error {
 func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
 	var where []string
 	tokens := searchTokens(q)
-	if len(tokens) > 0 {
+	compact := compactSearchToken(q)
+	useCompact := shouldUseCompactSearch(q, tokens, compact)
+	if useCompact {
+		where = append(where, "positionCaseInsensitiveUTF8(replaceRegexpAll(content, '[^0-9A-Za-z]+', ''), "+quoteSQL(compact)+") > 0")
+	} else if len(tokens) > 0 {
 		tokenClauses := make([]string, 0, len(tokens))
 		for _, token := range tokens {
 			tokenClauses = append(tokenClauses, "hasTokenCaseInsensitive(content, "+quoteSQL(token)+")")
 		}
 		where = append(where, strings.Join(tokenClauses, " AND "))
+	}
+	kind = strings.TrimSpace(strings.ToLower(kind))
+	if kind == "" {
+		kind = "dir"
 	}
 	switch kind {
 	case "dir":
@@ -328,6 +336,32 @@ func searchTokens(q string) []string {
 		}
 	}
 	return out
+}
+
+func compactSearchToken(q string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(q) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func shouldUseCompactSearch(q string, tokens []string, compact string) bool {
+	if compact == "" {
+		return false
+	}
+	if strings.ContainsAny(q, "-_/.:") {
+		return true
+	}
+	for _, token := range strings.Fields(strings.ToLower(q)) {
+		token = strings.TrimSpace(token)
+		if len(token) == 1 {
+			return true
+		}
+	}
+	return len(tokens) == 0
 }
 
 func displayPath(root, path string) string {

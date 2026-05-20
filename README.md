@@ -54,13 +54,15 @@ CLICKHOUSE_URL=http://127.0.0.1:8127
 CLICKHOUSE_DB=indexer
 CLICKHOUSE_USER=userC
 CLICKHOUSE_PASSWORD=passC
+MOVIES_EXTS="mkv avi mpg mpeg mp4 m4v mov webm wmv"
+SUBTITLE_EXT="sub idx srt"
 ```
 
 ## How It Works
 
 1. `web` or `cli` mode starts local ClickHouse through `docker compose`.
 2. Incremental SQL migrations are applied from `migrations/`.
-3. Reindex walks configured roots and stores searchable entries into ClickHouse.
+3. Reindex walks configured roots and stores searchable directory names plus configured video file extensions into ClickHouse.
 4. Reindex state is checkpointed into `_tmpdb/` so interrupted runs can resume.
 5. Search is available from both the web UI and CLI.
 6. Browse is restricted to configured roots only, so it cannot move upward outside the configured roots and cannot expose `.env` or `.env.override` secrets.
@@ -97,11 +99,12 @@ go run main.go web
 
 The UI shows:
 
+- tabbed browse / indexer / search / duplicates / manage views
 - global reindex progress
 - mount-point progress tree
 - configured-root progress tree
-- restricted browse menu for configured roots
-- search
+- restricted browse tree for configured roots
+- search table
 - duplicate detection
 - rename suggestion
 - move / rename / delete actions
@@ -139,6 +142,9 @@ Current main schema:
 | `modified_at` | `DateTime64(3)` | modification time |
 | `fingerprint` | `String` | sampled file fingerprint |
 | `content` | `String` | normalized searchable text |
+| `subtree_size` | `Int64` | aggregated descendant file bytes for directories |
+| `subtree_files` | `Int32` | aggregated descendant file count for directories |
+| `subtree_dirs` | `Int32` | aggregated descendant directory count for directories |
 
 Engine: `ReplacingMergeTree(modified_at)` with `ORDER BY path`
 
@@ -148,6 +154,7 @@ Engine: `ReplacingMergeTree(modified_at)` with `ORDER BY path`
 make web
 make air
 make migrate
+make clickhouse
 make cli-reindex
 make cli-search q="kensei"
 make svelte-watch

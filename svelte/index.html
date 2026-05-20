@@ -207,6 +207,8 @@
       border-collapse: collapse;
       font-size: 13px;
     }
+    tbody tr:nth-child(odd) { background: rgba(255,255,255,0.015); }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.045); }
     th, td {
       text-align: left;
       padding: 10px 12px;
@@ -235,6 +237,35 @@
       color: var(--muted);
       text-align: center;
     }
+    .clickable { cursor: pointer; }
+    .tooltipish { text-decoration: underline dotted; text-underline-offset: 2px; }
+    .fdFile { color: #7ad7ff; }
+    .fdDir { color: #d8a8ff; }
+    .ageDay { color: #7ed4ff; }
+    .ageYear { color: #f6c96f; }
+    .unit-b { color: #b6c6db; }
+    .unit-kb { color: #68d8ff; }
+    .unit-mb { color: #67d99a; }
+    .unit-gb { color: #d7df71; }
+    .unit-tb { color: #ffb76c; }
+    .toastWrap {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 50;
+      display: grid;
+      gap: 10px;
+      width: min(360px, calc(100vw - 36px));
+    }
+    .toast {
+      background: rgba(140, 32, 32, 0.96);
+      color: #fff3f3;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      font-size: 13px;
+    }
     .split {
       display: grid;
       grid-template-columns: 1.1fr 0.9fr;
@@ -247,6 +278,7 @@
   </style>
 </head>
 <body>
+  <div id="toastWrap" class="toastWrap"></div>
   <div class="wrap">
     <section class="hero">
       <div class="card">
@@ -278,21 +310,72 @@
     </section>
 
     <div class="tabs">
-      <button class="tabBtn active" data-tab="search" onclick="switchTab('search', event)">Search</button>
-      <button class="tabBtn" data-tab="browse" onclick="switchTab('browse', event)">Browse</button>
+      <button class="tabBtn active" data-tab="browse" onclick="switchTab('browse', event)">Browse</button>
+      <button class="tabBtn" data-tab="indexer" onclick="switchTab('indexer', event)">Indexer</button>
+      <button class="tabBtn" data-tab="search" onclick="switchTab('search', event)">Search</button>
       <button class="tabBtn" data-tab="duplicates" onclick="switchTab('duplicates', event)">Duplicates</button>
       <button class="tabBtn" data-tab="manage" onclick="switchTab('manage', event)">Manage</button>
     </div>
 
-    <section id="tab-search" class="tabPane active">
+    <section id="tab-browse" class="tabPane active">
+      <div class="workspace">
+        <div class="treePane">
+          <div class="treeHeader">
+            <h2>Tree</h2>
+            <div class="row" style="margin:0">
+              <button class="ghost" onclick="browseUp()">Up</button>
+              <button class="ghost" onclick="reloadTree()">Reload</button>
+            </div>
+          </div>
+          <div id="browseTree" class="treeScroll"></div>
+        </div>
+        <div class="resultPane">
+          <div class="resultHeader">
+            <div>
+              <h2 id="browseTitle">Directory Listing</h2>
+              <div id="browseSubtitle" class="mono" style="color:var(--muted); margin-top:4px"></div>
+            </div>
+            <div class="row" style="margin:0">
+              <input id="browseFilter" placeholder="Filter by name" style="max-width:220px" oninput="renderBrowseTable()">
+              <button class="ghost" id="toggleRelativeTime" onclick="toggleRelativeTime()">Relative Time: Off</button>
+            </div>
+          </div>
+          <div class="resultScroll">
+            <table>
+              <thead>
+                <tr>
+                  <th class="clickable" onclick="setBrowseSort('base')">Name</th>
+                  <th class="clickable" onclick="setBrowseSort('isDir')">Type</th>
+                  <th class="clickable" onclick="setBrowseSort('contents')">Contents</th>
+                  <th class="clickable" onclick="setBrowseSort('size')">Total Size</th>
+                  <th class="clickable" onclick="setBrowseSort('modifiedAt')">Modified</th>
+                </tr>
+              </thead>
+              <tbody id="browseTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-indexer" class="tabPane">
+      <div class="card">
+        <div class="cardInner">
+          <h2>Per Root Progress</h2>
+          <div id="treeProgress" class="statusBox" style="min-height:420px"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-search" class="tabPane">
       <div class="card">
         <div class="cardInner">
           <div class="row">
-            <input id="searchQuery" placeholder="Search directory names and video filenames">
+            <input id="searchQuery" placeholder="Search directory names and video filenames" onkeydown="onSearchKey(event)">
             <select id="searchKind">
-              <option value="">all</option>
-              <option value="dir">directories</option>
+              <option value="dir" selected>directories</option>
               <option value="file">video files</option>
+              <option value="">all</option>
             </select>
             <button class="secondary" onclick="runSearch()">Search</button>
           </div>
@@ -316,43 +399,6 @@
                 <tbody id="searchTable"></tbody>
               </table>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="tab-browse" class="tabPane">
-      <div class="workspace">
-        <div class="treePane">
-          <div class="treeHeader">
-            <h2>Tree</h2>
-            <div class="row" style="margin:0">
-              <button class="ghost" onclick="reloadTree()">Reload</button>
-            </div>
-          </div>
-          <div id="browseTree" class="treeScroll"></div>
-        </div>
-        <div class="resultPane">
-          <div class="resultHeader">
-            <div>
-              <h2 id="browseTitle">Directory Listing</h2>
-              <div id="browseSubtitle" class="mono" style="color:var(--muted); margin-top:4px"></div>
-            </div>
-          </div>
-          <div class="resultScroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Contents</th>
-                  <th>Total Size</th>
-                  <th>Modified</th>
-                  <th>Path</th>
-                </tr>
-              </thead>
-              <tbody id="browseTable"></tbody>
-            </table>
           </div>
         </div>
       </div>
@@ -421,14 +467,32 @@
       roots: [],
       expanded: new Set(),
       loaded: new Map(),
-      selectedPath: ''
+      selectedPath: '',
+      currentRows: [],
+      sortBy: 'isDir',
+      sortDesc: false,
+      relativeTime: false
     }
 
     async function getJSON(url, options = {}) {
       const res = await fetch(url, options)
       const text = await res.text()
-      if (!res.ok) throw new Error(text)
+      if (!res.ok) {
+        showToast(text || ('HTTP ' + res.status))
+        throw new Error(text)
+      }
       return text ? JSON.parse(text) : {}
+    }
+
+    function showToast(message) {
+      const wrap = document.getElementById('toastWrap')
+      const el = document.createElement('div')
+      el.className = 'toast'
+      el.textContent = String(message)
+      wrap.appendChild(el)
+      setTimeout(() => {
+        el.remove()
+      }, 5000)
     }
 
     function escapeHtml(text) {
@@ -451,6 +515,37 @@
       return value.toFixed(idx === 0 ? 0 : 2) + ' ' + units[idx]
     }
 
+    function formatBytesHtml(bytes) {
+      if (!bytes) return '<span class="unit-b">0 B</span>'
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
+      const classes = ['unit-b', 'unit-kb', 'unit-mb', 'unit-gb', 'unit-tb']
+      let value = bytes
+      let idx = 0
+      while (value >= 1024 && idx < units.length - 1) {
+        value /= 1024
+        idx++
+      }
+      return '<span class="' + classes[idx] + '">' + value.toFixed(idx === 0 ? 0 : 2) + ' ' + units[idx] + '</span>'
+    }
+
+    function formatAge(iso) {
+      if (!browseState.relativeTime || !iso) return escapeHtml(iso || '')
+      const then = new Date(iso)
+      const now = new Date()
+      const diffMs = now - then
+      const dayMs = 24 * 60 * 60 * 1000
+      if (diffMs < dayMs) {
+        const hours = Math.floor(diffMs / (60 * 60 * 1000))
+        const mins = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000))
+        return '<span class="ageDay">' + String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + '</span>'
+      }
+      const days = diffMs / dayMs
+      if (days >= 365) {
+        return '<span class="ageYear">' + (days / 365).toFixed(2) + ' Y</span>'
+      }
+      return '<span class="ageDay">' + Math.floor(days) + ' D</span>'
+    }
+
     function switchTab(tab, event) {
       document.querySelectorAll('.tabBtn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab))
       document.querySelectorAll('.tabPane').forEach(pane => pane.classList.toggle('active', pane.id === 'tab-' + tab))
@@ -459,7 +554,8 @@
     async function refreshStatus() {
       try {
         const s = await getJSON('/api/status')
-        const pct = Number(s.progressPct || 0)
+        const allRoots = (s.mounts || []).flatMap(m => m.roots || [])
+        const pct = allRoots.length ? allRoots.reduce((acc, root) => acc + Number(root.progressPct || 0), 0) / allRoots.length : Number(s.progressPct || 0)
         document.getElementById('progressFill').style.width = pct.toFixed(2) + '%'
         document.getElementById('metricWorkers').textContent = (s.activeWorkers || 0) + ' / ' + (s.workerCount || 0)
         document.getElementById('metricTotalSize').textContent = formatBytes(s.totalBytes || 0)
@@ -476,6 +572,19 @@
           '  dirs=' + (s.directories || 0) +
           '\ncurrent=' + (s.currentPath || '')
         document.getElementById('status').textContent = JSON.stringify(s, null, 2)
+        document.getElementById('treeProgress').innerHTML = (s.mounts || []).map(mount =>
+          '<div style="margin-bottom:12px">' +
+            '<div><strong>' + escapeHtml(mount.mountPoint || '(unknown)') + '</strong> <span class="mono">' + Number(mount.progressPct || 0).toFixed(2) + '%</span></div>' +
+            '<div class="progressBar" style="margin:6px 0 8px"><div class="progressFill" style="width:' + Number(mount.progressPct || 0).toFixed(2) + '%"></div></div>' +
+            (mount.roots || []).map(root =>
+              '<div style="margin:8px 0 10px">' +
+                '<div><span class="pill">' + escapeHtml(root.kind) + '</span>' + escapeHtml(root.path) + '</div>' +
+                '<div class="mono" style="color:var(--muted); margin-top:3px">' + formatBytes(root.processedBytes || 0) + ' / ' + formatBytes(root.totalBytes || 0) + '</div>' +
+                '<div class="progressBar" style="margin-top:4px"><div class="progressFill" style="width:' + Number(root.progressPct || 0).toFixed(2) + '%"></div></div>' +
+              '</div>'
+            ).join('') +
+          '</div>'
+        ).join('')
       } catch (err) {
         document.getElementById('status').textContent = String(err)
       }
@@ -508,6 +617,13 @@
           '<td class="mono">' + escapeHtml(item.modifiedAt || '') + '</td>' +
         '</tr>'
       ).join('')
+    }
+
+    function onSearchKey(event) {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        runSearch()
+      }
     }
 
     async function reloadTree() {
@@ -546,7 +662,7 @@
             '<span class="treeIndent" style="width:' + (depth * 14) + 'px"></span>' +
             '<span class="twisty" onclick="event.stopPropagation(); toggleNode(\'' + encodeURIComponent(path) + '\')">' + (expanded ? '▾' : '▸') + '</span>' +
             '<span class="treeName">' + escapeHtml(item.base) + '</span>' +
-            '<span class="treeMeta">' + (item.isDir ? ((item.fileCount || 0) + 'f ' + (item.dirCount || 0) + 'd • ') : '') + formatBytes(item.size || 0) + '</span>' +
+            '<span class="treeMeta">' + (item.isDir ? ('<span class="fdFile tooltipish" title="descendant files">' + (item.fileCount || 0) + 'f</span> <span class="fdDir tooltipish" title="descendant directories">' + (item.dirCount || 0) + 'd</span> • ') : '') + formatBytesHtml(item.size || 0) + '</span>' +
           '</div>' +
           (expanded ? '<div class="children">' + children.map(child => renderNode(child, depth + 1)).join('') + '</div>' : '') +
         '</div>'
@@ -569,22 +685,66 @@
     async function selectBrowsePath(path) {
       browseState.selectedPath = path
       renderTree()
-      const rows = await getJSON('/api/browse?path=' + encodeURIComponent(path))
+      browseState.currentRows = await getJSON('/api/browse?path=' + encodeURIComponent(path))
       document.getElementById('browseTitle').textContent = 'Directory Listing'
       document.getElementById('browseSubtitle').textContent = path
+      renderBrowseTable()
+    }
+
+    function setBrowseSort(field) {
+      if (browseState.sortBy === field) {
+        browseState.sortDesc = !browseState.sortDesc
+      } else {
+        browseState.sortBy = field
+        browseState.sortDesc = false
+      }
+      renderBrowseTable()
+    }
+
+    function toggleRelativeTime() {
+      browseState.relativeTime = !browseState.relativeTime
+      document.getElementById('toggleRelativeTime').textContent = 'Relative Time: ' + (browseState.relativeTime ? 'On' : 'Off')
+      renderBrowseTable()
+    }
+
+    function browseUp() {
+      if (!browseState.selectedPath) return
+      const current = browseState.selectedPath
+      const parent = current.includes('/') ? current.slice(0, current.lastIndexOf('/')) : ''
+      if (!parent || parent === current) return
+      selectBrowsePath(parent)
+    }
+
+    function renderBrowseTable() {
+      const rows = [...browseState.currentRows]
+      const filter = (document.getElementById('browseFilter')?.value || '').trim().toLowerCase()
+      let filtered = rows.filter(item => !filter || String(item.base || '').toLowerCase().includes(filter))
+      filtered.sort((a, b) => {
+        let av, bv
+        switch (browseState.sortBy) {
+          case 'base': av = a.base || ''; bv = b.base || ''; break
+          case 'size': av = a.size || 0; bv = b.size || 0; break
+          case 'modifiedAt': av = a.modifiedAt || ''; bv = b.modifiedAt || ''; break
+          case 'contents': av = (a.fileCount || 0) + (a.dirCount || 0); bv = (b.fileCount || 0) + (b.dirCount || 0); break
+          case 'isDir':
+          default: av = a.isDir ? 1 : 0; bv = b.isDir ? 1 : 0; break
+        }
+        if (av < bv) return browseState.sortDesc ? 1 : -1
+        if (av > bv) return browseState.sortDesc ? -1 : 1
+        return String(a.base || '').localeCompare(String(b.base || ''))
+      })
       const tbody = document.getElementById('browseTable')
-      if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">Empty directory</td></tr>'
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Empty directory</td></tr>'
         return
       }
-      tbody.innerHTML = rows.map(item =>
+      tbody.innerHTML = filtered.map(item =>
         '<tr>' +
-          '<td>' + (item.isDir ? '<button class="ghost" onclick="selectNode(\'' + encodeURIComponent(item.path) + '\')">Open</button> ' : '') + escapeHtml(item.base) + '</td>' +
+          '<td>' + (item.isDir ? '<button class="ghost" title="' + escapeHtml(item.path || '') + '" onclick="selectNode(\'' + encodeURIComponent(item.path) + '\')">Open</button> ' : '') + escapeHtml(item.base) + '</td>' +
           '<td>' + (item.isDir ? 'DIR' : 'FILE') + '</td>' +
-          '<td>' + (item.isDir ? ((item.fileCount || 0) + ' files, ' + (item.dirCount || 0) + ' dirs') : '1 file') + '</td>' +
-          '<td>' + formatBytes(item.size || 0) + '</td>' +
-          '<td class="mono">' + escapeHtml(item.modifiedAt || '') + '</td>' +
-          '<td class="mono">' + escapeHtml(item.path || '') + '</td>' +
+          '<td>' + (item.isDir ? ('<span class="fdFile tooltipish" title="descendant files">' + (item.fileCount || 0) + ' F</span> <span class="fdDir tooltipish" title="descendant directories">' + (item.dirCount || 0) + ' D</span>') : '<span class="fdFile">1 F</span>') + '</td>' +
+          '<td>' + formatBytesHtml(item.size || 0) + '</td>' +
+          '<td class="mono">' + formatAge(item.modifiedAt || '') + '</td>' +
         '</tr>'
       ).join('')
     }

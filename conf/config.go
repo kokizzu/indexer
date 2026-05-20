@@ -15,6 +15,8 @@ const (
 	DefaultClickHouseDB   = "indexer"
 	DefaultClickHouseUser = "userC"
 	DefaultClickHousePass = "passC"
+	DefaultMoviesExts     = "mkv avi mpg mpeg mp4 m4v mov webm wmv"
+	DefaultSubtitleExts   = "sub idx srt"
 )
 
 type Config struct {
@@ -26,6 +28,8 @@ type Config struct {
 	ClickHouseDB   string
 	ClickHouseUser string
 	ClickHousePass string
+	MoviesExts     []string
+	SubtitleExts   []string
 }
 
 func LoadConfig(envPath string) (Config, error) {
@@ -53,11 +57,27 @@ func LoadConfig(envPath string) (Config, error) {
 		ClickHouseDB:   get("CLICKHOUSE_DB", DefaultClickHouseDB),
 		ClickHouseUser: get("CLICKHOUSE_USER", DefaultClickHouseUser),
 		ClickHousePass: get("CLICKHOUSE_PASSWORD", DefaultClickHousePass),
+		MoviesExts:     ParseSpaceList(get("MOVIES_EXTS", DefaultMoviesExts)),
+		SubtitleExts:   ParseSpaceList(get("SUBTITLE_EXT", DefaultSubtitleExts)),
 	}
 	if cfg.Password == "" {
 		return Config{}, errors.New("PASSWORD must not be empty")
 	}
 	return cfg, nil
+}
+
+func ParseSpaceList(raw string) []string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.ToLower(strings.TrimSpace(field))
+		if field == "" {
+			continue
+		}
+		field = strings.TrimPrefix(field, ".")
+		out = append(out, field)
+	}
+	return out
 }
 
 func ParseEnvFiles(paths ...string) (map[string]string, error) {

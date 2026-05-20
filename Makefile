@@ -1,6 +1,6 @@
 APP=indexer
 
-.PHONY: web air migrate cli-reindex cli-search svelte-watch test build
+.PHONY: web air migrate cli-reindex cli-search svelte-watch test build clickhouse
 
 web:
 	go run main.go web
@@ -26,3 +26,5 @@ test:
 build:
 	go build ./...
 
+clickhouse:
+	clickhouse client --port 9006 --user userC --password passC --database indexer

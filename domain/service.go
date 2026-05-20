@@ -33,18 +33,6 @@ var (
 	splitterRe = regexp.MustCompile(`[._]+`)
 )
 
-var videoExts = map[string]struct{}{
-	".avi":  {},
-	".m4v":  {},
-	".mkv":  {},
-	".mov":  {},
-	".mp4":  {},
-	".mpeg": {},
-	".mpg":  {},
-	".webm": {},
-	".wmv":  {},
-}
-
 type Status struct {
 	Running         bool            `json:"running"`
 	StartedAt       time.Time       `json:"startedAt"`
@@ -333,7 +321,7 @@ func (d *Domain) runReindex(priority string) {
 					if statErr != nil {
 						return nil
 					}
-					if !info.IsDir() && !IsIndexableVideoExt(filepath.Ext(cleanPath)) {
+					if !info.IsDir() && !d.IsIndexableVideoExt(filepath.Ext(cleanPath)) {
 						return nil
 					}
 
@@ -560,9 +548,14 @@ func SuggestName(base string) string {
 	return suggested
 }
 
-func IsIndexableVideoExt(ext string) bool {
-	_, ok := videoExts[strings.ToLower(strings.TrimSpace(ext))]
-	return ok
+func (d *Domain) IsIndexableVideoExt(ext string) bool {
+	ext = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+	for _, candidate := range d.Cfg.MoviesExts {
+		if ext == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func computeSubtreeStats(entries []model.FileEntry) {

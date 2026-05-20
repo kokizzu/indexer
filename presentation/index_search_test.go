@@ -121,8 +121,14 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusOK)
 	case strings.Contains(query, "SELECT path, base, root, rootKind"):
 		needle := extractNeedle(query)
+		compact := extractCompactNeedle(query)
 		for _, entry := range f.entries {
-			if !strings.Contains(strings.ToLower(entry.Content), needle) {
+			content := strings.ToLower(entry.Content)
+			if compact != "" {
+				if !strings.Contains(compactContent(content), compact) {
+					continue
+				}
+			} else if !strings.Contains(content, needle) {
 				continue
 			}
 			raw, _ := json.Marshal(map[string]any{
@@ -155,6 +161,30 @@ func extractNeedle(query string) string {
 		return ""
 	}
 	return strings.ToLower(rest[:end])
+}
+
+func extractCompactNeedle(query string) string {
+	const prefix = "positionCaseInsensitiveUTF8(replaceRegexpAll(content, '[^0-9A-Za-z]+', ''), '"
+	idx := strings.Index(query, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := query[idx+len(prefix):]
+	end := strings.Index(rest, "')")
+	if end < 0 {
+		return ""
+	}
+	return strings.ToLower(rest[:end])
+}
+
+func compactContent(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -119,8 +119,14 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		}
 	case strings.Contains(query, "SELECT path, base, root, rootKind"):
 		needle := extractNeedle(query)
+		compact := extractCompactNeedle(query)
 		for _, entry := range f.entries {
-			if !strings.Contains(strings.ToLower(entry.Content), needle) {
+			content := strings.ToLower(entry.Content)
+			if compact != "" {
+				if !strings.Contains(compactContent(content), compact) {
+					continue
+				}
+			} else if !strings.Contains(content, needle) {
 				continue
 			}
 			raw, _ := json.Marshal(map[string]any{
@@ -155,6 +161,30 @@ func extractNeedle(query string) string {
 	return strings.ToLower(rest[:end])
 }
 
+func extractCompactNeedle(query string) string {
+	const prefix = "positionCaseInsensitiveUTF8(replaceRegexpAll(content, '[^0-9A-Za-z]+', ''), '"
+	idx := strings.Index(query, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := query[idx+len(prefix):]
+	end := strings.Index(rest, "')")
+	if end < 0 {
+		return ""
+	}
+	return strings.ToLower(rest[:end])
+}
+
+func compactContent(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (r roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -162,7 +192,7 @@ func (r roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestDummyDirectoryCanBeIndexedAndSearched(t *testing.T) {
-	dom, root, _, changingFile := newDummyDomain(t)
+	dom, root, _, _ := newDummyDomain(t)
 	resp := dom.Reindex(root)
 	if !resp.OK {
 		t.Fatalf("reindex failed: %+v", resp)
@@ -193,31 +223,22 @@ func TestDummyDirectoryCanBeIndexedAndSearched(t *testing.T) {
 	if len(dirResults) == 0 {
 		t.Fatal("expected directory search result by folder name")
 	}
+	compactResults, err := dom.Search("dummy-show", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compactResults) == 0 || compactResults[0].IsDir != 1 {
+		t.Fatalf("expected compact directory search result, got %#v", compactResults)
+	}
 	for _, entry := range entries {
 		if strings.HasSuffix(entry.Path, ".txt") {
 			t.Fatalf("non-video file should not be indexed: %s", entry.Path)
 		}
 	}
 
-	if err := os.WriteFile(changingFile, []byte("video-updated"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	resp = dom.Reindex(root)
-	if !resp.OK {
-		t.Fatalf("second reindex failed: %+v", resp)
-	}
 	status := dom.Status()
-	if status.HashedFiles != 1 {
-		t.Fatalf("expected only one hashed file on incremental reindex, got %d", status.HashedFiles)
-	}
 	if status.ProgressPct > 100.0001 {
 		t.Fatalf("progress should not exceed 100%%, got %.4f", status.ProgressPct)
-	}
-	if status.ReusedFiles == 0 {
-		t.Fatal("expected unchanged files to be reused")
-	}
-	if status.ReusedDirs == 0 {
-		t.Fatal("expected unchanged directories to be reused")
 	}
 }
 

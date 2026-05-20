@@ -58,3 +58,10 @@ func TestParseEnvFilesOverrideWins(t *testing.T) {
 		t.Fatalf("merged=%#v", values)
 	}
 }
+
+func TestParseSpaceList(t *testing.T) {
+	got := ParseSpaceList(".mkv avi MP4")
+	if len(got) != 3 || got[0] != "mkv" || got[1] != "avi" || got[2] != "mp4" {
+		t.Fatalf("got=%#v", got)
+	}
+}
