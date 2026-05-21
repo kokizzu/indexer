@@ -2,6 +2,7 @@ package domain
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -26,12 +27,17 @@ import (
 )
 
 var (
-	seasonRe   = regexp.MustCompile(`(?i)\bS(?:EASON)?\s*0?(\d{1,2})\b`)
-	yearRe     = regexp.MustCompile(`\b(19|20)\d{2}\b`)
-	episodeRe  = regexp.MustCompile(`(?i)\b(\d+(?:-\d+)?E(?:w(?:\d+|[EXD]))?)\b`)
-	bracketRe  = regexp.MustCompile(`[\[\(][^\]\)]*[\]\)]`)
-	splitterRe = regexp.MustCompile(`[._]+`)
+	seasonRe       = regexp.MustCompile(`(?i)\bS(?:EASON)?\s*0?(\d{1,2})\b`)
+	yearRe         = regexp.MustCompile(`\b(19|20)\d{2}\b`)
+	episodeRe      = regexp.MustCompile(`(?i)\b(\d+(?:-\d+)?E(?:w(?:\d+|[EXD]))?)\b`)
+	bracketRe      = regexp.MustCompile(`[\[\(][^\]\)]*[\]\)]`)
+	splitterRe     = regexp.MustCompile(`[._]+`)
+	episodicStemRe = regexp.MustCompile(`(?i)^(?P<title>.+?)[ .]S(?P<season>\d{2,4})(?P<episodes>E\d{2,4}(?:(?:E|-)\d{2,4})*)(?P<rest>[ .].+)?$`)
+	prefixNoiseRe  = regexp.MustCompile(`^(?:www\.UIndex\.org|www\.Torrenting\.com|WWW\.SCENETIME\.COM)\s+-\s+`)
+	sortedReadyRe  = regexp.MustCompile(`\[[^\]]*of_w\d+\](?:=missing[\d,\-]+)?$`)
 )
+
+const manageHistoryTimeLayout = "2006-01-02 15:04:05.999"
 
 type Status struct {
 	Running         bool            `json:"running"`
@@ -86,6 +92,37 @@ type RootInfo struct {
 	Kind string `json:"kind"`
 }
 
+type Suggestion struct {
+	Original   string `json:"original"`
+	Normalized string `json:"normalized"`
+	CleanTitle string `json:"cleanTitle"`
+	Season     string `json:"season"`
+	Year       string `json:"year"`
+	Episode    string `json:"episode"`
+	Extras     string `json:"extras"`
+	Suggested  string `json:"suggested"`
+	Changed    bool   `json:"changed"`
+	RuleSource string `json:"ruleSource"`
+}
+
+type ManageTask struct {
+	ID         string    `json:"id"`
+	Action     string    `json:"action"`
+	Status     string    `json:"status"`
+	SrcPath    string    `json:"srcPath"`
+	DstPath    string    `json:"dstPath"`
+	DstDir     string    `json:"dstDir"`
+	Message    string    `json:"message"`
+	CreatedAt  time.Time `json:"createdAt"`
+	StartedAt  time.Time `json:"startedAt"`
+	FinishedAt time.Time `json:"finishedAt"`
+}
+
+type ManageQueueStatus struct {
+	Running ManageTask   `json:"running"`
+	Queued  []ManageTask `json:"queued"`
+}
+
 type Domain struct {
 	Cfg    conf.Config
 	Store  *model.Store
@@ -93,6 +130,11 @@ type Domain struct {
 
 	mu     sync.RWMutex
 	status Status
+
+	manageMu      sync.RWMutex
+	manageCond    *sync.Cond
+	manageQueue   []*ManageTask
+	manageRunning *ManageTask
 }
 
 type ReindexCheckpoint struct {
@@ -120,11 +162,54 @@ type entryIndex struct {
 
 func New(cfg conf.Config) *Domain {
 	client := &http.Client{Timeout: 60 * time.Second}
-	return &Domain{
+	d := &Domain{
 		Cfg:    cfg,
 		client: client,
 		Store:  model.NewStore(cfg, client),
 	}
+	d.manageCond = sync.NewCond(&d.manageMu)
+	d.bootstrapResumeStatus()
+	go d.manageLoop()
+	return d
+}
+
+func (d *Domain) bootstrapResumeStatus() {
+	roots := d.Roots("")
+	if len(roots) == 0 {
+		d.loadLastStatus()
+		return
+	}
+	mountHints := loadMountHints()
+	mounts := buildProgressTree(roots, mountHints, map[string]int64{})
+	_, _, status, err := d.loadResumeState("", mounts)
+	if err != nil {
+		d.loadLastStatus()
+		return
+	}
+	if !status.Resumed && status.TotalBytes == 0 && status.Indexed == 0 {
+		d.loadLastStatus()
+		return
+	}
+	status.Running = false
+	status.ActiveWorkers = 0
+	status.WorkerCount = len(groupRootsByMount(roots, mountHints))
+	d.mu.Lock()
+	d.status = status
+	d.mu.Unlock()
+}
+
+func (d *Domain) loadLastStatus() {
+	raw, err := os.ReadFile(d.lastStatusPath())
+	if err != nil {
+		return
+	}
+	var status Status
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return
+	}
+	d.mu.Lock()
+	d.status = status
+	d.mu.Unlock()
 }
 
 func (d *Domain) EnsureProjectDirs() error {
@@ -188,11 +273,242 @@ func (d *Domain) Status() Status {
 	return d.status
 }
 
+func (d *Domain) ManageStatus() ManageQueueStatus {
+	d.manageMu.RLock()
+	defer d.manageMu.RUnlock()
+	out := ManageQueueStatus{}
+	if d.manageRunning != nil {
+		out.Running = *d.manageRunning
+	}
+	out.Queued = make([]ManageTask, 0, len(d.manageQueue))
+	for _, task := range d.manageQueue {
+		if task == nil {
+			continue
+		}
+		out.Queued = append(out.Queued, *task)
+	}
+	return out
+}
+
+func (d *Domain) ManageHistory(limit int) ([]model.ManageHistoryEntry, error) {
+	return d.Store.ListManageHistory(limit)
+}
+
+func (d *Domain) QueueMove(password, srcPath, dstDir string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	srcPath = filepath.Clean(srcPath)
+	dstDir = filepath.Clean(dstDir)
+	if err := d.AssertAllowed(srcPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.AssertAllowed(dstDir); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.ValidateSortedMove(srcPath, dstDir); err != nil {
+		return model.ActionResponse{}, err
+	}
+	task := &ManageTask{
+		ID:        d.newManageID(),
+		Action:    "move",
+		Status:    "queued",
+		SrcPath:   srcPath,
+		DstDir:    dstDir,
+		DstPath:   filepath.Join(dstDir, filepath.Base(srcPath)),
+		CreatedAt: time.Now().UTC(),
+	}
+	d.enqueueManageTask(task)
+	return model.ActionResponse{OK: true, Message: "queued move " + task.ID}, nil
+}
+
+func (d *Domain) ValidateSortedMove(srcPath, dstDir string) error {
+	srcPath = filepath.Clean(srcPath)
+	dstDir = filepath.Clean(dstDir)
+	if !d.isSortedRootPath(dstDir) {
+		return nil
+	}
+	base := filepath.Base(srcPath)
+	nameOnly := strings.TrimSuffix(base, filepath.Ext(base))
+	if sortedReadyRe.MatchString(nameOnly) {
+		return nil
+	}
+	return fmt.Errorf("source must already be renamed to final sorted form before moving into sorted roots: expected [...of_wN], got %s", base)
+}
+
+func (d *Domain) isSortedRootPath(path string) bool {
+	for _, root := range d.Cfg.SortedRoots {
+		root = filepath.Clean(root)
+		if path == root || strings.HasPrefix(path, root+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Domain) QueueRename(password, oldPath, newPath string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	oldPath = filepath.Clean(oldPath)
+	newPath = filepath.Clean(newPath)
+	if err := d.AssertAllowed(oldPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.AssertAllowed(filepath.Dir(newPath)); err != nil {
+		return model.ActionResponse{}, err
+	}
+	task := &ManageTask{
+		ID:        d.newManageID(),
+		Action:    "rename",
+		Status:    "queued",
+		SrcPath:   oldPath,
+		DstPath:   newPath,
+		CreatedAt: time.Now().UTC(),
+	}
+	d.enqueueManageTask(task)
+	return model.ActionResponse{OK: true, Message: "queued rename " + task.ID}, nil
+}
+
+func (d *Domain) QueueDelete(password, path string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	path = filepath.Clean(path)
+	if err := d.AssertAllowed(path); err != nil {
+		return model.ActionResponse{}, err
+	}
+	task := &ManageTask{
+		ID:        d.newManageID(),
+		Action:    "delete",
+		Status:    "queued",
+		SrcPath:   path,
+		CreatedAt: time.Now().UTC(),
+	}
+	d.enqueueManageTask(task)
+	return model.ActionResponse{OK: true, Message: "queued delete " + task.ID}, nil
+}
+
+func (d *Domain) QueueCategorize(password, path string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	path = filepath.Clean(path)
+	if err := d.AssertAllowed(path); err != nil {
+		return model.ActionResponse{}, err
+	}
+	task := &ManageTask{
+		ID:        d.newManageID(),
+		Action:    "categorize",
+		Status:    "queued",
+		SrcPath:   path,
+		CreatedAt: time.Now().UTC(),
+	}
+	d.enqueueManageTask(task)
+	return model.ActionResponse{OK: true, Message: "queued categorize " + task.ID}, nil
+}
+
+func (d *Domain) enqueueManageTask(task *ManageTask) {
+	d.manageMu.Lock()
+	defer d.manageMu.Unlock()
+	d.manageQueue = append(d.manageQueue, task)
+	d.manageCond.Signal()
+}
+
+func (d *Domain) newManageID() string {
+	return strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+}
+
+func (d *Domain) manageLoop() {
+	for {
+		d.manageMu.Lock()
+		for len(d.manageQueue) == 0 {
+			d.manageCond.Wait()
+		}
+		task := d.manageQueue[0]
+		d.manageQueue = d.manageQueue[1:]
+		task.Status = "running"
+		task.StartedAt = time.Now().UTC()
+		d.manageRunning = task
+		d.manageMu.Unlock()
+
+		err := d.executeManageTask(task)
+		task.FinishedAt = time.Now().UTC()
+		if err != nil {
+			task.Status = "error"
+			task.Message = err.Error()
+		} else {
+			task.Status = "done"
+			if task.Message == "" {
+				task.Message = task.Action + " completed"
+			}
+		}
+		_ = d.Store.InsertManageHistory(model.ManageHistoryEntry{
+			ID:         task.ID,
+			Action:     task.Action,
+			Status:     task.Status,
+			SrcPath:    task.SrcPath,
+			DstPath:    task.DstPath,
+			Message:    task.Message,
+			CreatedAt:  task.CreatedAt.UTC().Format(manageHistoryTimeLayout),
+			StartedAt:  task.StartedAt.UTC().Format(manageHistoryTimeLayout),
+			FinishedAt: task.FinishedAt.UTC().Format(manageHistoryTimeLayout),
+		})
+
+		d.manageMu.Lock()
+		d.manageRunning = nil
+		d.manageMu.Unlock()
+	}
+}
+
+func (d *Domain) executeManageTask(task *ManageTask) error {
+	switch task.Action {
+	case "move":
+		if err := os.MkdirAll(task.DstDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(task.SrcPath, task.DstPath); err != nil {
+			return err
+		}
+		task.Message = "moved to " + task.DstPath
+		return nil
+	case "rename":
+		if err := os.Rename(task.SrcPath, task.DstPath); err != nil {
+			return err
+		}
+		task.Message = "renamed to " + task.DstPath
+		return nil
+	case "delete":
+		if err := os.RemoveAll(task.SrcPath); err != nil {
+			return err
+		}
+		task.Message = "deleted " + task.SrcPath
+		return nil
+	case "categorize":
+		out, err := d.runCategorize(task.SrcPath, true)
+		if err != nil {
+			return err
+		}
+		task.Message = strings.TrimSpace(out)
+		if task.Message == "" {
+			task.Message = "categorize completed for " + task.SrcPath
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown manage action: %s", task.Action)
+	}
+}
+
 func (d *Domain) StartReindex(priority string) (model.ActionResponse, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.status.Running {
 		return model.ActionResponse{OK: false, Message: "reindex already running"}, false
+	}
+	roots := d.Roots(priority)
+	if len(roots) == 0 {
+		d.status = Status{Error: "no configured roots found or accessible"}
+		return model.ActionResponse{OK: false, Message: "no configured roots found or accessible"}, false
 	}
 	d.status = Status{
 		Running:      true,
@@ -204,6 +520,13 @@ func (d *Domain) StartReindex(priority string) (model.ActionResponse, bool) {
 }
 
 func (d *Domain) Reindex(priority string) model.ActionResponse {
+	roots := d.Roots(priority)
+	if len(roots) == 0 {
+		d.mu.Lock()
+		d.status = Status{Error: "no configured roots found or accessible"}
+		d.mu.Unlock()
+		return model.ActionResponse{OK: false, Message: "no configured roots found or accessible"}
+	}
 	d.mu.Lock()
 	d.status = Status{
 		Running:      true,
@@ -231,6 +554,7 @@ func (d *Domain) runReindex(priority string) {
 		d.mu.Lock()
 		d.status = status
 		d.mu.Unlock()
+		_ = d.saveLastStatus(status)
 	}()
 
 	existingEntries, err := d.Store.LoadEntries()
@@ -424,6 +748,11 @@ func (d *Domain) runReindex(priority string) {
 		status.Error = err.Error()
 		return
 	}
+	finalizeProgress(&status)
+	d.mu.Lock()
+	d.status = status
+	d.mu.Unlock()
+	_ = d.saveLastStatus(status)
 	_ = os.Remove(d.checkpointPath())
 	_ = os.Remove(d.entriesStatePath())
 }
@@ -432,8 +761,116 @@ func (d *Domain) Search(q, kind string, limit int) ([]model.SearchResult, error)
 	return d.Store.Search(q, kind, limit)
 }
 
+func (d *Domain) SearchPage(q, kind string, limit, offset int) (model.SearchPage, error) {
+	return d.Store.SearchPage(q, kind, limit, offset)
+}
+
 func (d *Domain) Duplicates() ([]model.DuplicateGroup, error) {
 	return d.Store.Duplicates()
+}
+
+func (d *Domain) CategorizePreview(path string, previewLimit int) (model.CategorizePreview, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if err := d.AssertAllowed(path); err != nil {
+		return model.CategorizePreview{}, err
+	}
+	if previewLimit <= 0 {
+		previewLimit = 200
+	}
+	out, err := d.runCategorizePreview(path, previewLimit)
+	if err != nil {
+		return model.CategorizePreview{}, err
+	}
+	return parseCategorizePreview(path, out), nil
+}
+
+func (d *Domain) runCategorizePreview(path string, previewLimit int) (string, error) {
+	scriptPath, err := findProjectFile("categorize_episode_files.py")
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", scriptPath, "--root", path, "--preview-limit", strconv.Itoa(previewLimit))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("categorize preview failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func parseCategorizePreview(path, out string) model.CategorizePreview {
+	res := model.CategorizePreview{
+		Path:   path,
+		Output: out,
+	}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Detected episodic video files:"):
+			res.DetectedVideoFiles = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Detected episodic video files:")))
+		case strings.HasPrefix(line, "Detected groups:"):
+			res.DetectedGroups = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Detected groups:")))
+		case strings.HasPrefix(line, "Planned moves/renames:"):
+			res.PlannedMoves = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Planned moves/renames:")))
+		case strings.Contains(line, " -> "):
+			parts := strings.SplitN(line, " -> ", 2)
+			if len(parts) == 2 {
+				res.Operations = append(res.Operations, model.CategorizePreviewOperation{
+					Source: strings.TrimSpace(parts[0]),
+					Target: strings.TrimSpace(parts[1]),
+				})
+			}
+		case strings.Contains(strings.ToLower(line), "preview truncated"):
+			res.Truncated = true
+		}
+	}
+	return res
+}
+
+func atoiLoose(s string) int {
+	v, _ := strconv.Atoi(strings.TrimSpace(s))
+	return v
+}
+
+func (d *Domain) runCategorize(path string, apply bool) (string, error) {
+	scriptPath, err := findProjectFile("categorize_episode_files.py")
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	args := []string{scriptPath, "--root", path, "--preview-limit", "120"}
+	if apply {
+		args = append(args, "--apply", "--remove-empty-dirs")
+	}
+	cmd := exec.CommandContext(ctx, "python3", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("categorize apply failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func findProjectFile(name string) (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	cur := wd
+	for {
+		candidate := filepath.Join(cur, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return "", fmt.Errorf("project file not found: %s", name)
 }
 
 func (d *Domain) RequirePassword(password string) error {
@@ -509,6 +946,68 @@ func (d *Domain) Browse(path string) ([]model.BrowseEntry, error) {
 }
 
 func SuggestName(base string) string {
+	return SuggestDetails(base).Suggested
+}
+
+func (d *Domain) SuggestPath(path string) Suggestion {
+	path = filepath.Clean(strings.TrimSpace(path))
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return SuggestDetails(filepath.Base(path))
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return SuggestDetails(filepath.Base(path))
+	}
+	type episodeCandidate struct {
+		title   string
+		season  int
+		episode []int
+	}
+	groups := map[string]*episodeCandidate{}
+	counts := map[string]int{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(entry.Name()), "."))
+		if !d.IsIndexableVideoExt(ext) {
+			continue
+		}
+		title, season, episodes, ok := parseEpisodicVideoStem(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())))
+		if !ok {
+			continue
+		}
+		key := fmt.Sprintf("%s|%d", title, season)
+		cand := groups[key]
+		if cand == nil {
+			cand = &episodeCandidate{title: title, season: season}
+			groups[key] = cand
+		}
+		cand.episode = append(cand.episode, episodes...)
+		counts[key]++
+	}
+	if len(groups) == 1 {
+		for key, cand := range groups {
+			summary, suffix := summarizeEpisodes(cand.episode)
+			suggested := buildEpisodeFolderName(cand.title, cand.season, summary, 0, suffix)
+			return Suggestion{
+				Original:   filepath.Base(path),
+				Normalized: normalizeEpisodeTitle(cand.title),
+				CleanTitle: displayEpisodeTitle(cand.title, cand.season),
+				Season:     fmt.Sprintf("S%02d", cand.season),
+				Episode:    summary,
+				Extras:     suffix,
+				Suggested:  suggested,
+				Changed:    suggested != filepath.Base(path),
+				RuleSource: "categorize_episode_files.py directory grouping (" + strconv.Itoa(counts[key]) + " files)",
+			}
+		}
+	}
+	return SuggestDetails(filepath.Base(path))
+}
+
+func SuggestDetails(base string) Suggestion {
 	name := strings.TrimSpace(base)
 	name = strings.ReplaceAll(name, "_", " ")
 	name = splitterRe.ReplaceAllString(name, " ")
@@ -543,9 +1042,160 @@ func SuggestName(base string) string {
 	suggested := strings.Join(parts, " ")
 	suggested = strings.Join(strings.Fields(suggested), " ")
 	if suggested == "" {
-		return base
+		suggested = base
 	}
-	return suggested
+	return Suggestion{
+		Original:   base,
+		Normalized: name,
+		CleanTitle: title,
+		Season:     strings.ToUpper(strings.ReplaceAll(season, " ", "")),
+		Year:       year,
+		Episode:    strings.ToUpper(strings.ReplaceAll(episode, " ", "")),
+		Extras:     extras,
+		Suggested:  suggested,
+		Changed:    suggested != base,
+		RuleSource: "basename heuristic",
+	}
+}
+
+func cleanEpisodeComponent(name string) string {
+	name = prefixNoiseRe.ReplaceAllString(strings.TrimSpace(name), "")
+	name = strings.Join(strings.Fields(name), " ")
+	return strings.Trim(name, " .")
+}
+
+func normalizeEpisodeTitle(raw string) string {
+	return cleanEpisodeComponent(strings.ReplaceAll(raw, ".", " "))
+}
+
+func displayEpisodeTitle(raw string, season int) string {
+	return fmt.Sprintf("%s S%02d", normalizeEpisodeTitle(raw), season)
+}
+
+func parseEpisodicVideoStem(stem string) (string, int, []int, bool) {
+	stem = cleanEpisodeComponent(stem)
+	match := episodicStemRe.FindStringSubmatch(stem)
+	if match == nil {
+		return "", 0, nil, false
+	}
+	episodesToken := match[episodicStemRe.SubexpIndex("episodes")]
+	title := match[episodicStemRe.SubexpIndex("title")]
+	season, err := strconv.Atoi(match[episodicStemRe.SubexpIndex("season")])
+	if err != nil {
+		return "", 0, nil, false
+	}
+	numsRaw := regexp.MustCompile(`\d{2,4}`).FindAllString(episodesToken, -1)
+	if len(numsRaw) == 0 {
+		return "", 0, nil, false
+	}
+	nums := make([]int, 0, len(numsRaw))
+	for _, raw := range numsRaw {
+		n, err := strconv.Atoi(raw)
+		if err == nil {
+			nums = append(nums, n)
+		}
+	}
+	if len(nums) == 0 {
+		return "", 0, nil, false
+	}
+	episodes := []int{nums[0]}
+	if strings.Contains(episodesToken, "-") && len(nums) >= 2 && nums[1] >= nums[0] {
+		episodes = episodes[:0]
+		for n := nums[0]; n <= nums[1]; n++ {
+			episodes = append(episodes, n)
+		}
+	} else {
+		episodes = nums
+	}
+	return title, season, episodes, true
+}
+
+func summarizeEpisodes(episodes []int) (string, string) {
+	if len(episodes) == 0 {
+		return "", ""
+	}
+	ordered := make([]int, 0, len(episodes))
+	seen := map[int]struct{}{}
+	for _, ep := range episodes {
+		if _, ok := seen[ep]; ok {
+			continue
+		}
+		seen[ep] = struct{}{}
+		ordered = append(ordered, ep)
+	}
+	sort.Ints(ordered)
+	maxEpisode := ordered[len(ordered)-1]
+	missing := make([]int, 0)
+	for ep := 1; ep <= maxEpisode; ep++ {
+		if _, ok := seen[ep]; !ok {
+			missing = append(missing, ep)
+		}
+	}
+	if len(missing) > 0 && len(missing) <= 3 {
+		return strconv.Itoa(maxEpisode), "=missing" + joinEpisodeRanges(missing)
+	}
+	if len(ordered) == 1 {
+		only := ordered[0]
+		if only == 1 {
+			return "1", ""
+		}
+		return fmt.Sprintf("%d-%d", only, only), ""
+	}
+	ranges := collapseEpisodeRanges(ordered)
+	if len(ranges) == 1 && ranges[0][0] == 1 {
+		if ranges[0][0] == ranges[0][1] {
+			return "1", ""
+		}
+		return strconv.Itoa(ranges[0][1]), ""
+	}
+	parts := make([]string, 0, len(ranges))
+	for _, rg := range ranges {
+		start, end := rg[0], rg[1]
+		switch {
+		case start == end:
+			parts = append(parts, strconv.Itoa(start))
+		case start == 1:
+			parts = append(parts, fmt.Sprintf("-%d", end))
+		default:
+			parts = append(parts, fmt.Sprintf("%d-%d", start, end))
+		}
+	}
+	return strings.Join(parts, ","), ""
+}
+
+func collapseEpisodeRanges(ordered []int) [][2]int {
+	if len(ordered) == 0 {
+		return nil
+	}
+	out := make([][2]int, 0)
+	start, prev := ordered[0], ordered[0]
+	for _, ep := range ordered[1:] {
+		if ep == prev+1 {
+			prev = ep
+			continue
+		}
+		out = append(out, [2]int{start, prev})
+		start, prev = ep, ep
+	}
+	out = append(out, [2]int{start, prev})
+	return out
+}
+
+func joinEpisodeRanges(ordered []int) string {
+	ranges := collapseEpisodeRanges(ordered)
+	parts := make([]string, 0, len(ranges))
+	for _, rg := range ranges {
+		if rg[0] == rg[1] {
+			parts = append(parts, strconv.Itoa(rg[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d-%d", rg[0], rg[1]))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func buildEpisodeFolderName(rawTitle string, season int, summary string, watchedCount int, suffix string) string {
+	return fmt.Sprintf("%s [%sof_w%d]%s", displayEpisodeTitle(rawTitle, season), summary, watchedCount, suffix)
 }
 
 func (d *Domain) IsIndexableVideoExt(ext string) bool {
@@ -556,6 +1206,147 @@ func (d *Domain) IsIndexableVideoExt(ext string) bool {
 		}
 	}
 	return false
+}
+
+func (d *Domain) IsSubtitleExt(ext string) bool {
+	ext = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+	for _, candidate := range d.Cfg.SubtitleExts {
+		if ext == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *Domain) SuggestSubtitleRename(path string) (string, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if err := d.AssertAllowed(path); err != nil {
+		return "", err
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if !d.IsSubtitleExt(ext) {
+		return "", fmt.Errorf("not a configured subtitle file: %s", path)
+	}
+	parent := filepath.Dir(path)
+	stemBase := filepath.Base(parent)
+	if stemBase == "" || stemBase == "." || stemBase == string(os.PathSeparator) {
+		return "", fmt.Errorf("cannot infer subtitle stem from parent directory: %s", path)
+	}
+	lang := subtitleLanguageSuffix(filepath.Base(path))
+	targetName := stemBase
+	if lang != "" {
+		targetName += "." + lang
+	}
+	targetName += ext
+	return filepath.Join(parent, targetName), nil
+}
+
+func (d *Domain) ScanSubtitleRenameCandidates(path string, limit int) ([]model.SubtitleRenameCandidate, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if err := d.AssertAllowed(path); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("scan path must be a directory: %s", path)
+	}
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	out := make([]model.SubtitleRenameCandidate, 0, minInt(limit, 64))
+	seen := map[string]struct{}{}
+	_ = filepath.WalkDir(path, func(current string, dirEntry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if dirEntry.IsDir() {
+			name := dirEntry.Name()
+			if name == ".git" || name == ".agents" || name == ".codex" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.IsSubtitleExt(filepath.Ext(current)) {
+			return nil
+		}
+		newPath, err := d.SuggestSubtitleRename(current)
+		if err != nil {
+			return nil
+		}
+		if filepath.Clean(newPath) == filepath.Clean(current) {
+			return nil
+		}
+		if _, ok := seen[current]; ok {
+			return nil
+		}
+		seen[current] = struct{}{}
+		out = append(out, model.SubtitleRenameCandidate{
+			Path:      current,
+			Current:   filepath.Base(current),
+			Suggested: filepath.Base(newPath),
+			NewPath:   newPath,
+		})
+		if len(out) >= limit {
+			return io.EOF
+		}
+		return nil
+	})
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
+	return out, nil
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func subtitleLanguageSuffix(base string) string {
+	name := strings.ToLower(strings.TrimSuffix(base, filepath.Ext(base)))
+	replacer := strings.NewReplacer(
+		".", " ",
+		"_", " ",
+		"-", " ",
+		"[", " ",
+		"]", " ",
+		"(", " ",
+		")", " ",
+	)
+	tokens := strings.Fields(replacer.Replace(name))
+	tokenSet := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		tokenSet[token] = struct{}{}
+	}
+	for _, pair := range [][2]string{
+		{"english", "en"},
+		{"eng", "en"},
+		{"indonesian", "id"},
+		{"indonesia", "id"},
+		{"indo", "id"},
+		{"japanese", "ja"},
+		{"jpn", "ja"},
+		{"korean", "ko"},
+		{"kor", "ko"},
+		{"chinese", "zh"},
+		{"mandarin", "zh"},
+		{"spanish", "es"},
+		{"esp", "es"},
+		{"french", "fr"},
+		{"german", "de"},
+		{"arabic", "ar"},
+		{"portuguese", "pt"},
+		{"vietnamese", "vi"},
+		{"thai", "th"},
+	} {
+		if _, ok := tokenSet[pair[0]]; ok {
+			return pair[1]
+		}
+	}
+	return ""
 }
 
 func computeSubtreeStats(entries []model.FileEntry) {
@@ -738,6 +1529,10 @@ func (d *Domain) entriesStatePath() string {
 	return filepath.Join("_tmpdb", "reindex_entries.jsonl")
 }
 
+func (d *Domain) lastStatusPath() string {
+	return filepath.Join("_tmpdb", "last_reindex_status.json")
+}
+
 func (d *Domain) saveCheckpoint(status Status) error {
 	raw, err := json.MarshalIndent(ReindexCheckpoint{
 		PriorityRoot:   status.PriorityRoot,
@@ -762,6 +1557,14 @@ func (d *Domain) saveCheckpoint(status Status) error {
 	return os.WriteFile(d.checkpointPath(), raw, 0o644)
 }
 
+func (d *Domain) saveLastStatus(status Status) error {
+	raw, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(d.lastStatusPath(), raw, 0o644)
+}
+
 func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]model.FileEntry, map[string]struct{}, Status, error) {
 	processed := map[string]struct{}{}
 	status := Status{
@@ -772,11 +1575,20 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 	}
 	raw, err := os.ReadFile(d.checkpointPath())
 	if err == nil {
+		if len(bytes.TrimSpace(raw)) == 0 {
+			raw = nil
+		}
+	}
+	if len(raw) > 0 {
 		var ck ReindexCheckpoint
 		if err := json.Unmarshal(raw, &ck); err != nil {
-			return nil, nil, Status{}, err
+			if strings.Contains(strings.ToLower(err.Error()), "unexpected end of json input") {
+				raw = nil
+			} else {
+				return nil, nil, Status{}, err
+			}
 		}
-		if ck.PriorityRoot == priority {
+		if raw != nil && ck.PriorityRoot == priority {
 			status.StartedAt = ck.StartedAt
 			status.Resumed = ck.Resumed
 			status.ResumedEntries = ck.ResumedEntries
@@ -784,6 +1596,7 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 			status.TotalRoots = ck.TotalRoots
 			status.EstimatedFiles = ck.EstimatedFiles
 			status.EstimatedDirs = ck.EstimatedDirs
+			status.TotalBytes = ck.TotalBytes
 			status.CurrentRoot = ck.CurrentRoot
 			status.CurrentPath = ck.CurrentPath
 		}
@@ -799,8 +1612,15 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
 		var entry model.FileEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		if err := json.Unmarshal(line, &entry); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unexpected end of json input") {
+				continue
+			}
 			return nil, nil, Status{}, err
 		}
 		entry.Path = filepath.Clean(entry.Path)
@@ -909,20 +1729,55 @@ func applyProgressEntry(status *Status, entry model.FileEntry) {
 }
 
 func seedProgressTotals(status *Status) {
-	status.TotalBytes = status.ProcessedBytes
+	if status.TotalBytes < status.ProcessedBytes {
+		status.TotalBytes = status.ProcessedBytes
+	}
 	for mi := range status.Mounts {
 		mount := &status.Mounts[mi]
 		var mountProcessed int64
+		var mountTotal int64
 		for ri := range mount.Roots {
 			root := &mount.Roots[ri]
-			root.TotalBytes = root.ProcessedBytes
+			if root.TotalBytes < root.ProcessedBytes {
+				root.TotalBytes = root.ProcessedBytes
+			}
 			root.ProgressPct = progressPct(root.ProcessedBytes, root.TotalBytes)
 			mountProcessed += root.ProcessedBytes
+			mountTotal += root.TotalBytes
 		}
-		mount.TotalBytes = mountProcessed
+		if mount.TotalBytes < mountTotal {
+			mount.TotalBytes = mountTotal
+		}
 		mount.ProcessedBytes = mountProcessed
-		mount.ProgressPct = progressPct(mountProcessed, mount.TotalBytes)
+		mount.ProgressPct = progressPct(mount.ProcessedBytes, mount.TotalBytes)
 	}
+	status.ProgressPct = progressPct(status.ProcessedBytes, status.TotalBytes)
+}
+
+func finalizeProgress(status *Status) {
+	status.EstimatedRoots = status.TotalRoots
+	status.EstimatedFiles = status.Files
+	status.EstimatedDirs = status.Directories
+	for mi := range status.Mounts {
+		mount := &status.Mounts[mi]
+		var mountTotal int64
+		for ri := range mount.Roots {
+			root := &mount.Roots[ri]
+			if root.TotalBytes < root.ProcessedBytes {
+				root.TotalBytes = root.ProcessedBytes
+			}
+			root.ProcessedBytes = root.TotalBytes
+			root.ProgressPct = progressPct(root.ProcessedBytes, root.TotalBytes)
+			mountTotal += root.TotalBytes
+		}
+		mount.TotalBytes = mountTotal
+		mount.ProcessedBytes = mountTotal
+		mount.ProgressPct = progressPct(mount.ProcessedBytes, mount.TotalBytes)
+	}
+	if status.TotalBytes < status.ProcessedBytes {
+		status.TotalBytes = status.ProcessedBytes
+	}
+	status.ProcessedBytes = status.TotalBytes
 	status.ProgressPct = progressPct(status.ProcessedBytes, status.TotalBytes)
 }
 

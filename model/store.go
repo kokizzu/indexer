@@ -216,7 +216,54 @@ func (s *Store) RestoreEntries(path string) error {
 	return s.ReplaceEntries(entries)
 }
 
-func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
+func (s *Store) InsertManageHistory(entry ManageHistoryEntry) error {
+	payload := map[string]any{
+		"id":          entry.ID,
+		"action":      entry.Action,
+		"status":      entry.Status,
+		"src_path":    entry.SrcPath,
+		"dst_path":    entry.DstPath,
+		"message":     entry.Message,
+		"created_at":  entry.CreatedAt,
+		"started_at":  entry.StartedAt,
+		"finished_at": entry.FinishedAt,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return s.Insert("INSERT INTO manage_history FORMAT JSONEachRow", string(raw)+"\n")
+}
+
+func (s *Store) ListManageHistory(limit int) ([]ManageHistoryEntry, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.Query("SELECT id, action, status, src_path, dst_path, message, toString(created_at) AS createdAt, toString(started_at) AS startedAt, toString(finished_at) AS finishedAt FROM manage_history ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit) + " FORMAT JSONEachRow")
+	if err != nil {
+		if strings.Contains(err.Error(), "doesn't exist") {
+			return []ManageHistoryEntry{}, nil
+		}
+		return nil, err
+	}
+	out := make([]ManageHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ManageHistoryEntry{
+			ID:         X.ToS(row["id"]),
+			Action:     X.ToS(row["action"]),
+			Status:     X.ToS(row["status"]),
+			SrcPath:    X.ToS(row["src_path"]),
+			DstPath:    X.ToS(row["dst_path"]),
+			Message:    X.ToS(row["message"]),
+			CreatedAt:  X.ToS(row["createdAt"]),
+			StartedAt:  X.ToS(row["startedAt"]),
+			FinishedAt: X.ToS(row["finishedAt"]),
+		})
+	}
+	return out, nil
+}
+
+func searchWhere(q, kind string) []string {
 	var where []string
 	tokens := searchTokens(q)
 	compact := compactSearchToken(q)
@@ -226,7 +273,7 @@ func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
 	} else if len(tokens) > 0 {
 		tokenClauses := make([]string, 0, len(tokens))
 		for _, token := range tokens {
-			tokenClauses = append(tokenClauses, "hasTokenCaseInsensitive(content, "+quoteSQL(token)+")")
+			tokenClauses = append(tokenClauses, "(hasTokenCaseInsensitive(content, "+quoteSQL(token)+") OR positionCaseInsensitiveUTF8(lowerUTF8(content), "+quoteSQL(strings.ToLower(token))+") > 0)")
 		}
 		where = append(where, strings.Join(tokenClauses, " AND "))
 	}
@@ -240,32 +287,62 @@ func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
 	case "file":
 		where = append(where, "is_dir = 0")
 	}
+	return where
+}
 
-	query := "SELECT path, base, root, rootKind, is_dir, size, toString(modified_at) AS modifiedAt, fingerprint FROM entries"
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	query += " ORDER BY modified_at DESC LIMIT " + strconv.Itoa(limit) + " FORMAT JSONEachRow"
-
-	rows, err := s.Query(query)
+func (s *Store) Search(q, kind string, limit int) ([]SearchResult, error) {
+	page, err := s.SearchPage(q, kind, limit, 0)
 	if err != nil {
 		return nil, err
 	}
+	return page.Rows, nil
+}
+
+func (s *Store) SearchPage(q, kind string, limit, offset int) (SearchPage, error) {
+	where := searchWhere(q, kind)
+	baseQuery := " FROM entries"
+	if len(where) > 0 {
+		baseQuery += " WHERE " + strings.Join(where, " AND ")
+	}
+	countRows, err := s.Query("SELECT count() AS total" + baseQuery + " FORMAT JSONEachRow")
+	if err != nil {
+		return SearchPage{}, err
+	}
+	total := 0
+	if len(countRows) > 0 {
+		total = int(X.ToI(countRows[0]["total"]))
+	}
+	query := "SELECT path, base, root, rootKind, is_dir, if(is_dir = 1, subtree_size, size) AS effectiveSize, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt, fingerprint" + baseQuery +
+		" ORDER BY modified_at DESC LIMIT " + strconv.Itoa(limit) + " OFFSET " + strconv.Itoa(offset) + " FORMAT JSONEachRow"
+
+	rows, err := s.Query(query)
+	if err != nil {
+		return SearchPage{}, err
+	}
 	res := make([]SearchResult, 0, len(rows))
 	for _, row := range rows {
+		isDir := uint8(X.ToI(row["is_dir"]))
+		fileCount := 1
+		dirCount := 0
+		if isDir == 1 {
+			fileCount = int(X.ToI(row["subtree_files"]))
+			dirCount = int(X.ToI(row["subtree_dirs"]))
+		}
 		res = append(res, SearchResult{
-			Path:        displayPath(X.ToS(row["root"]), X.ToS(row["path"])),
+			Path:        X.ToS(row["path"]),
 			DisplayPath: displayPath(X.ToS(row["root"]), X.ToS(row["path"])),
 			Base:        X.ToS(row["base"]),
 			Root:        filepath.Base(filepath.Clean(X.ToS(row["root"]))),
 			RootKind:    X.ToS(row["rootKind"]),
-			IsDir:       uint8(X.ToI(row["is_dir"])),
-			Size:        X.ToI(row["size"]),
+			IsDir:       isDir,
+			Size:        X.ToI(row["effectiveSize"]),
+			FileCount:   fileCount,
+			DirCount:    dirCount,
 			ModifiedAt:  X.ToS(row["modifiedAt"]),
 			Fingerprint: X.ToS(row["fingerprint"]),
 		})
 	}
-	return res, nil
+	return SearchPage{Rows: res, Total: total}, nil
 }
 
 func (s *Store) Browse(path string, roots []string) ([]BrowseEntry, error) {

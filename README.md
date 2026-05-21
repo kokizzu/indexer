@@ -28,8 +28,8 @@ PASSWORD=example
 WEB_ADDR=:18080
 
 SORTED_MOVIES="
-/path/to/sorted/root-a
-/path/to/sorted/root-b
+/path/to/sorted/root-c
+/path/to/sorted/root-d
 "
 
 UNSORTED_MOVIES="
@@ -66,6 +66,65 @@ SUBTITLE_EXTS="sub idx srt"
 4. Reindex state is checkpointed into `_tmpdb/` so interrupted runs can resume.
 5. Search is available from both the web UI and CLI.
 6. Browse is restricted to configured roots only, so it cannot move upward outside the configured roots and cannot expose `.env` or `.env.override` secrets.
+
+## Manage Rules
+
+The naming and grouping rules are based on [categorize_episode_files.py](/home/kyz/go/src/indexer/categorize_episode_files.py).
+
+High-level behavior:
+
+- Scan a root for episodic video filenames that match `Title SNN E..`.
+- Group matching files by normalized series title plus season.
+- Move grouped files into one folder per series-season group.
+- Folder naming target:
+  - `"<Title> SNN [<episode-summary>of_wN]"`
+- `wN` is the watched marker, for example `w0`, `w3`, and so on.
+
+Practical library workflow:
+
+- The main `Manage` use case is moving content from `UNSORTED_MOVIES` into `SORTED_MOVIES`.
+- Content should be renamed into the final directory form first.
+- In practice, temporary episodic forms like `... [12Ew0]` are still pre-sorted / in-progress forms.
+- A folder is considered ready to move into sorted roots only after it already uses the final grouped summary form like:
+  - `Show Name S01 [12of_w0]`
+  - `Show Name S01 [-2,4-7of_w0]`
+  - `Show Name S01 [43of_w0]=missing8,9`
+- The sorted category buckets commonly used are:
+  - `_a` for anime
+  - `_e` for eastern
+  - `_w` for western
+  - `_i` for indonesia
+- The UI therefore prefers the last selected browse directory as the default source, and the move flow is intended to send already-renamed folders into one of those sorted category roots.
+
+Episode summary rules:
+
+- `[7-7of_w0]` means only episode `7` is present.
+- `[7of_w0]` means episodes `1` through `7` are present.
+- `[-2,4-7of_w0]` means episodes `1-2` and `4-7` are present.
+- When the set is almost continuous from `1..maxEpisode`, compact missing form is preferred:
+  - `[43of_w0]=missing8,9`
+  - `[43of_w0]=missing5-7`
+
+Parsing and normalization rules:
+
+- Video files are matched by a season/episode regex similar to:
+  - `Title S01E01`
+  - `Title.S01E01-E03`
+- Title normalization removes common noisy prefixes and collapses repeated whitespace.
+- Dotted titles are converted to spaced titles for folder display.
+- Season is rendered as `SNN`.
+- Long folder names are shortened by abbreviating the episode summary instead of dropping the title/season pattern.
+
+Subtitle and cleanup rules from the script:
+
+- Subtitle extensions are matched separately and moved alongside their video when the mapping is unambiguous.
+- Exact subtitle stem matches are preferred.
+- Single local subtitle or single `Subs/` subtitle can be auto-selected when safe.
+- In `Manage -> Rename`, subtitle helper rename can normalize sidecar names to the parent video-stem form, for example:
+  - `Subs/.../2_English.srt` -> `Subs/.../<parent-video-stem>.en.srt`
+- Common junk sidecars such as `.exe`, `.nfo`, `.txt`, `.url` can be deleted during apply mode.
+- `Screens/` directories can be removed.
+- Empty directories can optionally be removed after moves complete.
 
 ## Indexing Behavior
 
@@ -106,8 +165,9 @@ The UI shows:
 - restricted browse tree for configured roots
 - search table
 - duplicate detection
-- rename suggestion
+- manage suggestions based on episodic folder naming rules
 - move / rename / delete actions
+- queued manage execution plus history
 
 ## Migrations
 
