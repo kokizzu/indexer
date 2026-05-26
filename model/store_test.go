@@ -134,3 +134,47 @@ func TestMarshalEntryForClickHouseUsesClickHouseTimeFormat(t *testing.T) {
 		t.Fatalf("unexpected modified_at: %#v", got)
 	}
 }
+
+func TestSearchPageOrdersByBasenameRelevanceBeforeModifiedTime(t *testing.T) {
+	var seen []string
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			raw, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql := string(raw)
+			seen = append(seen, sql)
+			respBody := []byte("{\"total\":0}\n")
+			if strings.Contains(sql, "SELECT path, base, root, rootKind") {
+				respBody = nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+				Request:    req,
+			}, nil
+		}),
+	}
+	store := NewStore(conf.Config{
+		ClickHouseURL:  "http://127.0.0.1:8127",
+		ClickHouseDB:   "indexer",
+		ClickHouseUser: "userC",
+		ClickHousePass: "passC",
+	}, client)
+	if _, err := store.SearchPage("zaka", "dir", 100, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected count and data queries, got %d", len(seen))
+	}
+	query := seen[1]
+	if !strings.Contains(query, "positionCaseInsensitiveUTF8(lowerUTF8(base), 'zaka')") {
+		t.Fatalf("expected basename relevance in query, got %q", query)
+	}
+	if !strings.Contains(query, "ORDER BY") || !strings.Contains(query, "modified_at DESC") {
+		t.Fatalf("expected ordered search query, got %q", query)
+	}
+}

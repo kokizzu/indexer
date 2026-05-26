@@ -65,6 +65,10 @@ type ManageHistoryEntry struct {
 	Status     string `json:"status"`
 	SrcPath    string `json:"srcPath"`
 	DstPath    string `json:"dstPath"`
+	DstDir     string `json:"dstDir"`
+	VideosOnly bool   `json:"videosOnly"`
+	WatchedCount int  `json:"watchedCount"`
+	RemoveEmptyDirs bool `json:"removeEmptyDirs"`
 	Message    string `json:"message"`
 	CreatedAt  string `json:"createdAt"`
 	StartedAt  string `json:"startedAt"`
@@ -72,8 +76,23 @@ type ManageHistoryEntry struct {
 }
 
 type CategorizePreviewOperation struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+	Kind      string `json:"kind"`
+	TargetDir string `json:"targetDir"`
+}
+
+type CategorizePreviewGroup struct {
+	TargetDir      string `json:"targetDir"`
+	Count          int    `json:"count"`
+	VideoMoves     int    `json:"videoMoves"`
+	SubtitleMoves  int    `json:"subtitleMoves"`
+	AuxiliaryMoves int    `json:"auxiliaryMoves"`
+}
+
+type AmbiguousSubtitle struct {
+	Video      string   `json:"video"`
+	Candidates []string `json:"candidates"`
 }
 
 type CategorizePreview struct {
@@ -82,7 +101,12 @@ type CategorizePreview struct {
 	DetectedVideoFiles int                          `json:"detectedVideoFiles"`
 	DetectedGroups     int                          `json:"detectedGroups"`
 	PlannedMoves       int                          `json:"plannedMoves"`
+	VideoMoves         int                          `json:"videoMoves"`
+	SubtitleMoves      int                          `json:"subtitleMoves"`
+	AuxiliaryMoves     int                          `json:"auxiliaryMoves"`
 	Operations         []CategorizePreviewOperation `json:"operations"`
+	Groups             []CategorizePreviewGroup     `json:"groups"`
+	AmbiguousSubtitles []AmbiguousSubtitle          `json:"ambiguousSubtitles"`
 	Truncated          bool                         `json:"truncated"`
 }
 

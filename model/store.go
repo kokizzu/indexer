@@ -223,6 +223,10 @@ func (s *Store) InsertManageHistory(entry ManageHistoryEntry) error {
 		"status":      entry.Status,
 		"src_path":    entry.SrcPath,
 		"dst_path":    entry.DstPath,
+		"dst_dir":     entry.DstDir,
+		"videos_only": boolToUInt8(entry.VideosOnly),
+		"watched_count": entry.WatchedCount,
+		"remove_empty_dirs": boolToUInt8(entry.RemoveEmptyDirs),
 		"message":     entry.Message,
 		"created_at":  entry.CreatedAt,
 		"started_at":  entry.StartedAt,
@@ -239,7 +243,7 @@ func (s *Store) ListManageHistory(limit int) ([]ManageHistoryEntry, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.Query("SELECT id, action, status, src_path, dst_path, message, toString(created_at) AS createdAt, toString(started_at) AS startedAt, toString(finished_at) AS finishedAt FROM manage_history ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit) + " FORMAT JSONEachRow")
+	rows, err := s.Query("SELECT id, action, status, src_path, dst_path, dst_dir, videos_only, watched_count, remove_empty_dirs, message, toString(created_at) AS createdAt, toString(started_at) AS startedAt, toString(finished_at) AS finishedAt FROM manage_history ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit) + " FORMAT JSONEachRow")
 	if err != nil {
 		if strings.Contains(err.Error(), "doesn't exist") {
 			return []ManageHistoryEntry{}, nil
@@ -254,6 +258,10 @@ func (s *Store) ListManageHistory(limit int) ([]ManageHistoryEntry, error) {
 			Status:     X.ToS(row["status"]),
 			SrcPath:    X.ToS(row["src_path"]),
 			DstPath:    X.ToS(row["dst_path"]),
+			DstDir:     X.ToS(row["dst_dir"]),
+			VideosOnly: X.ToI(row["videos_only"]) != 0,
+			WatchedCount: int(X.ToI(row["watched_count"])),
+			RemoveEmptyDirs: X.ToI(row["remove_empty_dirs"]) != 0,
 			Message:    X.ToS(row["message"]),
 			CreatedAt:  X.ToS(row["createdAt"]),
 			StartedAt:  X.ToS(row["startedAt"]),
@@ -261,6 +269,39 @@ func (s *Store) ListManageHistory(limit int) ([]ManageHistoryEntry, error) {
 		})
 	}
 	return out, nil
+}
+
+func (s *Store) GetManageHistory(id string) (ManageHistoryEntry, error) {
+	rows, err := s.Query("SELECT id, action, status, src_path, dst_path, dst_dir, videos_only, watched_count, remove_empty_dirs, message, toString(created_at) AS createdAt, toString(started_at) AS startedAt, toString(finished_at) AS finishedAt FROM manage_history WHERE id = " + quoteSQL(id) + " ORDER BY created_at DESC LIMIT 1 FORMAT JSONEachRow")
+	if err != nil {
+		return ManageHistoryEntry{}, err
+	}
+	if len(rows) == 0 {
+		return ManageHistoryEntry{}, os.ErrNotExist
+	}
+	row := rows[0]
+	return ManageHistoryEntry{
+		ID:         X.ToS(row["id"]),
+		Action:     X.ToS(row["action"]),
+		Status:     X.ToS(row["status"]),
+		SrcPath:    X.ToS(row["src_path"]),
+		DstPath:    X.ToS(row["dst_path"]),
+		DstDir:     X.ToS(row["dst_dir"]),
+		VideosOnly: X.ToI(row["videos_only"]) != 0,
+		WatchedCount: int(X.ToI(row["watched_count"])),
+		RemoveEmptyDirs: X.ToI(row["remove_empty_dirs"]) != 0,
+		Message:    X.ToS(row["message"]),
+		CreatedAt:  X.ToS(row["createdAt"]),
+		StartedAt:  X.ToS(row["startedAt"]),
+		FinishedAt: X.ToS(row["finishedAt"]),
+	}, nil
+}
+
+func boolToUInt8(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func searchWhere(q, kind string) []string {
@@ -312,8 +353,9 @@ func (s *Store) SearchPage(q, kind string, limit, offset int) (SearchPage, error
 	if len(countRows) > 0 {
 		total = int(X.ToI(countRows[0]["total"]))
 	}
+	orderBy := searchOrder(q)
 	query := "SELECT path, base, root, rootKind, is_dir, if(is_dir = 1, subtree_size, size) AS effectiveSize, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt, fingerprint" + baseQuery +
-		" ORDER BY modified_at DESC LIMIT " + strconv.Itoa(limit) + " OFFSET " + strconv.Itoa(offset) + " FORMAT JSONEachRow"
+		" ORDER BY " + orderBy + " LIMIT " + strconv.Itoa(limit) + " OFFSET " + strconv.Itoa(offset) + " FORMAT JSONEachRow"
 
 	rows, err := s.Query(query)
 	if err != nil {
@@ -343,6 +385,32 @@ func (s *Store) SearchPage(q, kind string, limit, offset int) (SearchPage, error
 		})
 	}
 	return SearchPage{Rows: res, Total: total}, nil
+}
+
+func searchOrder(q string) string {
+	lowerQ := strings.ToLower(strings.TrimSpace(q))
+	compact := compactSearchToken(q)
+	order := make([]string, 0, 8)
+	if compact != "" {
+		compactBase := "replaceRegexpAll(lowerUTF8(base), '[^0-9A-Za-z]+', '')"
+		compactPos := "positionCaseInsensitiveUTF8(" + compactBase + ", " + quoteSQL(compact) + ")"
+		order = append(order,
+			"(" + compactPos + " > 0) DESC",
+			"if(" + compactPos + " = 0, 1000000, " + compactPos + ") ASC",
+		)
+	}
+	if lowerQ != "" {
+		basePos := "positionCaseInsensitiveUTF8(lowerUTF8(base), " + quoteSQL(lowerQ) + ")"
+		contentPos := "positionCaseInsensitiveUTF8(lowerUTF8(content), " + quoteSQL(lowerQ) + ")"
+		order = append(order,
+			"(" + basePos + " > 0) DESC",
+			"if(" + basePos + " = 0, 1000000, " + basePos + ") ASC",
+			"(" + contentPos + " > 0) DESC",
+			"if(" + contentPos + " = 0, 1000000, " + contentPos + ") ASC",
+		)
+	}
+	order = append(order, "modified_at DESC", "base ASC")
+	return strings.Join(order, ", ")
 }
 
 func (s *Store) Browse(path string, roots []string) ([]BrowseEntry, error) {

@@ -1,6 +1,6 @@
 APP=indexer
 
-.PHONY: web air migrate cli-reindex cli-search svelte-watch test build clickhouse
+.PHONY: web air migrate cli-reindex cli-search svelte-watch svelte-build test build clickhouse gen-views
 
 web:
 	go run main.go web
@@ -20,6 +20,9 @@ cli-search:
 svelte-watch:
 	cd svelte && npm run dev
 
+svelte-build:
+	cd svelte && npm run build
+
 test:
 	go test ./...
 
@@ -28,3 +31,6 @@ build:
 
 clickhouse:
 	clickhouse client --port 9006 --user userC --password passC --database indexer
+
+gen-views:
+	./gen-views.sh

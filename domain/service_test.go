@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,7 +89,7 @@ func TestQueueCategorizeRejectsOutsideRoots(t *testing.T) {
 		UnsortedRoots: []string{root},
 		MoviesExts:    []string{"mkv"},
 	})
-	_, err := dom.QueueCategorize("secret", filepath.Join(root, "..", "outside"))
+	_, err := dom.QueueCategorize("secret", filepath.Join(root, "..", "outside"), CategorizeOptions{})
 	if err == nil {
 		t.Fatal("expected outside-roots validation error")
 	}
@@ -176,8 +177,104 @@ func TestBootstrapLoadsLastStatus(t *testing.T) {
 	}
 }
 
+func TestManageQueueStateRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("_tmpdb", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dom := &Domain{Cfg: conf.Config{Password: "secret"}}
+	dom.manageCond = sync.NewCond(&dom.manageMu)
+	dom.manageQueue = []*ManageTask{
+		{ID: "q1", Action: "rename", Status: "queued", SrcPath: "/a", DstPath: "/b"},
+		{ID: "q2", Action: "move", Status: "queued", SrcPath: "/c", DstDir: "/dst", DstPath: "/dst/c"},
+	}
+	dom.manageRunning = map[string]*ManageTask{
+		"r1": {ID: "r1", Action: "categorize", Status: "running", SrcPath: "/x", WatchedCount: 2},
+		"r2": {ID: "r2", Action: "rename", Status: "running", SrcPath: "/m", DstPath: "/n"},
+	}
+	if err := dom.saveManageQueueStateLocked(); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := &Domain{Cfg: conf.Config{Password: "secret"}}
+	loaded.manageCond = sync.NewCond(&loaded.manageMu)
+	if err := loaded.loadManageQueueState(); err != nil {
+		t.Fatal(err)
+	}
+	status := loaded.ManageStatus()
+	if status.Running.ID != "" {
+		t.Fatalf("expected no running task after restore, got %+v", status.Running)
+	}
+	if len(status.RunningTasks) != 0 {
+		t.Fatalf("expected no running tasks after restore, got %+v", status.RunningTasks)
+	}
+	if len(status.Queued) != 4 {
+		t.Fatalf("expected 4 queued tasks after restore, got %+v", status.Queued)
+	}
+	if status.Queued[0].ID != "r1" || status.Queued[0].Status != "queued" {
+		t.Fatalf("expected previous running task to be requeued first, got %+v", status.Queued[0])
+	}
+	if status.Queued[1].ID != "r2" || status.Queued[1].Status != "queued" {
+		t.Fatalf("expected second running task to be requeued next, got %+v", status.Queued[1])
+	}
+}
+
+func TestManageTaskMountKeys(t *testing.T) {
+	dom := &Domain{}
+	task := &ManageTask{
+		SrcPath: "/mnt/a/src/show",
+		DstDir:  "/mnt/b/dst",
+		DstPath: "/mnt/b/dst/show",
+	}
+	got := dom.taskMountKeys(task, map[string][]string{
+		"/mnt/a": {"rw"},
+		"/mnt/b": {"rw"},
+	})
+	if len(got) != 2 || got[0] != "/mnt/a" || got[1] != "/mnt/b" {
+		t.Fatalf("unexpected mount keys: %+v", got)
+	}
+}
+
+func TestCanRunManageTaskLocked(t *testing.T) {
+	dom := &Domain{manageMounts: map[string]int{"/mnt/a": 1}}
+	mounts := map[string][]string{
+		"/mnt/a": {"rw"},
+		"/mnt/b": {"rw"},
+	}
+	if dom.canRunManageTaskLocked(&ManageTask{SrcPath: "/mnt/a/file"}, mounts) {
+		t.Fatal("expected same-mount task to be blocked")
+	}
+	if !dom.canRunManageTaskLocked(&ManageTask{SrcPath: "/mnt/b/file"}, mounts) {
+		t.Fatal("expected different-mount task to be allowed")
+	}
+}
+
+func TestCancelManageTask(t *testing.T) {
+	dom := &Domain{}
+	dom.manageCond = sync.NewCond(&dom.manageMu)
+	dom.manageQueue = []*ManageTask{
+		{ID: "q1", Action: "rename", Status: "queued", SrcPath: "/a", DstPath: "/b"},
+		{ID: "q2", Action: "delete", Status: "queued", SrcPath: "/c"},
+	}
+	res, err := dom.CancelManageTask("q1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || len(dom.manageQueue) != 1 || dom.manageQueue[0].ID != "q2" {
+		t.Fatalf("unexpected cancel result: %+v queue=%+v", res, dom.manageQueue)
+	}
+}
+
 func TestParseCategorizePreview(t *testing.T) {
-	raw := "Detected episodic video files: 3\nDetected groups: 1\nPlanned moves/renames: 2\n\nA.mkv -> Folder/A.mkv\nB.srt -> Folder/B.srt\n... preview truncated ...\n"
+	raw := "Detected episodic video files: 3\nDetected groups: 1\nPlanned moves/renames: 2\n\nA.mkv -> Folder/A.mkv\nB.srt -> Folder/B.srt\n\nAmbiguous subtitles skipped:\nV.mkv :: Subs/1.srt, Subs/2.srt\n... preview truncated ...\n"
 	got := parseCategorizePreview("/root/x", raw)
 	if got.DetectedVideoFiles != 3 || got.DetectedGroups != 1 || got.PlannedMoves != 2 {
 		t.Fatalf("unexpected summary: %+v", got)
@@ -185,8 +282,32 @@ func TestParseCategorizePreview(t *testing.T) {
 	if len(got.Operations) != 2 {
 		t.Fatalf("operations=%d", len(got.Operations))
 	}
+	if got.VideoMoves != 1 || got.SubtitleMoves != 1 || got.AuxiliaryMoves != 0 {
+		t.Fatalf("unexpected move-kind counts: %+v", got)
+	}
+	if len(got.Groups) != 1 || got.Groups[0].TargetDir != "Folder" || got.Groups[0].Count != 2 {
+		t.Fatalf("unexpected groups: %+v", got.Groups)
+	}
+	if got.Operations[0].Kind != "video" || got.Operations[1].Kind != "subtitle" {
+		t.Fatalf("unexpected operation kinds: %+v", got.Operations)
+	}
 	if !got.Truncated {
 		t.Fatal("expected truncated=true")
+	}
+	if len(got.AmbiguousSubtitles) != 1 || got.AmbiguousSubtitles[0].Video != "V.mkv" {
+		t.Fatalf("unexpected ambiguous subtitles: %+v", got.AmbiguousSubtitles)
+	}
+}
+
+func TestParseCategorizeApplySummary(t *testing.T) {
+	raw := "Removed auxiliary files: 4\nRemoved Screens directories: 2\nCreating target directories...\nMoving files...\nCompleted. moved=15 skipped_existing=3\nRemoved empty directories: 7\n"
+	got := parseCategorizeApplySummary(raw)
+	if got.RemovedAuxFiles != 4 || got.RemovedScreensDirs != 2 || got.Moved != 15 || got.SkippedExisting != 3 || got.RemovedEmptyDirs != 7 {
+		t.Fatalf("unexpected apply summary: %+v", got)
+	}
+	msg := formatCategorizeApplySummary("/root/x", got, raw)
+	if !strings.Contains(msg, "moved=15") || !strings.Contains(msg, "removed_empty_dirs=7") {
+		t.Fatalf("unexpected formatted message: %s", msg)
 	}
 }
 

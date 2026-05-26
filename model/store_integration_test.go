@@ -118,4 +118,42 @@ func TestStoreIntegrationWithClickHouse(t *testing.T) {
 	if len(dups) == 0 || len(dups[0].Paths) < 2 {
 		t.Fatalf("expected duplicate group, got %#v", dups)
 	}
+
+	historyEntry := ManageHistoryEntry{
+		ID:              "hist-1",
+		Action:          "categorize",
+		Status:          "done",
+		SrcPath:         "/library/_us/Show Name S01 [12Ew0]",
+		DstPath:         "",
+		DstDir:          "/library/_ws/_w",
+		VideosOnly:      true,
+		WatchedCount:    3,
+		RemoveEmptyDirs: true,
+		Message:         "categorize completed moved=12 skipped_existing=1 removed_empty_dirs=4",
+		CreatedAt:       "2026-05-20 12:34:56.789",
+		StartedAt:       "2026-05-20 12:35:00.000",
+		FinishedAt:      "2026-05-20 12:35:10.000",
+	}
+	if err := store.InsertManageHistory(historyEntry); err != nil {
+		t.Fatal(err)
+	}
+	historyRows, err := store.ListManageHistory(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(historyRows) == 0 {
+		t.Fatal("expected manage history rows")
+	}
+	gotHistory, err := store.GetManageHistory(historyEntry.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotHistory.Action != historyEntry.Action ||
+		gotHistory.SrcPath != historyEntry.SrcPath ||
+		gotHistory.DstDir != historyEntry.DstDir ||
+		gotHistory.VideosOnly != historyEntry.VideosOnly ||
+		gotHistory.WatchedCount != historyEntry.WatchedCount ||
+		gotHistory.RemoveEmptyDirs != historyEntry.RemoveEmptyDirs {
+		t.Fatalf("unexpected manage history roundtrip: got=%+v want=%+v", gotHistory, historyEntry)
+	}
 }

@@ -3,11 +3,12 @@ package presentation
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,12 +24,58 @@ func TestHandleSuggest(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := &WebServer{Domain: domain.New(conf.Config{Password: "secret", SortedRoots: []string{root}})}
-	body := `{"path":"` + target + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/suggest", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	ws.handleSuggest(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	res := doAppJSONRequest(t, ws, http.MethodPost, "/api/suggest", map[string]string{"path": target})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.StatusCode, readHTTPBody(t, res))
+	}
+}
+
+func TestServeIndexAndBuiltAssets(t *testing.T) {
+	ws := &WebServer{Domain: domain.New(conf.Config{})}
+
+	indexRes := doAppRequest(t, ws, http.MethodGet, "/", nil)
+	indexBody := readHTTPBody(t, indexRes)
+	if indexRes.StatusCode != http.StatusOK {
+		t.Fatalf("index status=%d body=%s", indexRes.StatusCode, indexBody)
+	}
+	if !strings.Contains(indexBody, `href="/app.css`) || !strings.Contains(indexBody, `src="./index.js`) || !strings.Contains(indexBody, `href="/favicon.svg`) {
+		t.Fatalf("index missing built asset references: %s", indexBody)
+	}
+
+	jsRes := doAppRequest(t, ws, http.MethodGet, "/index.js", nil)
+	jsBody := readHTTPBody(t, jsRes)
+	if jsRes.StatusCode != http.StatusOK {
+		t.Fatalf("index.js status=%d body=%s", jsRes.StatusCode, jsBody)
+	}
+	if !strings.Contains(jsBody, "initAppController") {
+		t.Fatalf("index.js did not look like built app bundle")
+	}
+
+	cssRes := doAppRequest(t, ws, http.MethodGet, "/app.css", nil)
+	cssBody := readHTTPBody(t, cssRes)
+	if cssRes.StatusCode != http.StatusOK {
+		t.Fatalf("app.css status=%d body=%s", cssRes.StatusCode, cssBody)
+	}
+	if !strings.Contains(cssBody, ":root") && !strings.Contains(cssBody, "body") {
+		t.Fatalf("app.css did not look like built stylesheet")
+	}
+
+	faviconRes := doAppRequest(t, ws, http.MethodGet, "/favicon.ico", nil)
+	faviconBody := readHTTPBody(t, faviconRes)
+	if faviconRes.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("favicon.ico status=%d body=%s", faviconRes.StatusCode, faviconBody)
+	}
+	if got := faviconRes.Header.Get("Location"); got != "/favicon.svg" {
+		t.Fatalf("favicon.ico redirect location=%q", got)
+	}
+
+	svgRes := doAppRequest(t, ws, http.MethodGet, "/favicon.svg", nil)
+	svgBody := readHTTPBody(t, svgRes)
+	if svgRes.StatusCode != http.StatusOK {
+		t.Fatalf("favicon.svg status=%d body=%s", svgRes.StatusCode, svgBody)
+	}
+	if !strings.Contains(svgBody, "<svg") {
+		t.Fatalf("favicon.svg did not look like svg content")
 	}
 }
 
@@ -47,15 +94,13 @@ func TestHandleSuggestSubtitle(t *testing.T) {
 		UnsortedRoots: []string{root},
 		SubtitleExts:  []string{"srt"},
 	})}
-	body := `{"path":"` + target + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/suggest-subtitle", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	ws.handleSuggestSubtitle(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	res := doAppJSONRequest(t, ws, http.MethodPost, "/api/suggest-subtitle", map[string]string{"path": target})
+	body := readHTTPBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.StatusCode, body)
 	}
-	if !strings.Contains(w.Body.String(), `.en.srt`) {
-		t.Fatalf("expected language-normalized subtitle rename, got %s", w.Body.String())
+	if !strings.Contains(body, `.en.srt`) {
+		t.Fatalf("expected language-normalized subtitle rename, got %s", body)
 	}
 }
 
@@ -74,15 +119,13 @@ func TestHandleScanSubtitles(t *testing.T) {
 		UnsortedRoots: []string{root},
 		SubtitleExts:  []string{"srt"},
 	})}
-	body := `{"path":"` + root + `","limit":20}`
-	req := httptest.NewRequest(http.MethodPost, "/api/scan-subtitles", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	ws.handleScanSubtitles(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	res := doAppJSONRequest(t, ws, http.MethodPost, "/api/scan-subtitles", domain.SubtitleScanIn{Path: root, Limit: 20})
+	body := readHTTPBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.StatusCode, body)
 	}
-	if !strings.Contains(w.Body.String(), `.en.srt`) {
-		t.Fatalf("expected subtitle scan result, got %s", w.Body.String())
+	if !strings.Contains(body, `.en.srt`) {
+		t.Fatalf("expected subtitle scan result, got %s", body)
 	}
 }
 
@@ -96,15 +139,13 @@ func TestHandleCategorizePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := &WebServer{Domain: domain.New(conf.Config{Password: "secret", SortedRoots: []string{root}, MoviesExts: []string{"mkv"}})}
-	body := `{"path":"` + target + `","previewLimit":20}`
-	req := httptest.NewRequest(http.MethodPost, "/api/categorize/preview", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	ws.handleCategorizePreview(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	res := doAppJSONRequest(t, ws, http.MethodPost, "/api/categorize/preview", domain.CategorizePreviewIn{Path: target, PreviewLimit: 20})
+	body := readHTTPBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", res.StatusCode, body)
 	}
-	if !strings.Contains(w.Body.String(), `"operations"`) {
-		t.Fatalf("expected structured operations in response: %s", w.Body.String())
+	if !strings.Contains(body, `"operations"`) {
+		t.Fatalf("expected structured operations in response: %s", body)
 	}
 }
 
@@ -122,13 +163,15 @@ func TestManageQueueCategorize(t *testing.T) {
 		UnsortedRoots: []string{root},
 		MoviesExts:    []string{"mkv"},
 	})}
-	queueRes := doJSONRequest(t, http.MethodPost, "/api/manage/queue", manageQueueRequest{
-		Action:   "categorize",
-		Password: "secret",
-		SrcPath:  target,
-	}, ws.handleManageQueue)
-	if queueRes.Code != http.StatusOK {
-		t.Fatalf("queue status=%d body=%s", queueRes.Code, queueRes.Body.String())
+	queueRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/manage/queue", domain.ManageQueueIn{
+		Action:          "categorize",
+		Password:        "secret",
+		SrcPath:         target,
+		WatchedCount:    2,
+		RemoveEmptyDirs: true,
+	})
+	if queueRes.StatusCode != http.StatusOK {
+		t.Fatalf("queue status=%d body=%s", queueRes.StatusCode, readHTTPBody(t, queueRes))
 	}
 	waitForManageQueueDrain(t, ws)
 }
@@ -149,27 +192,27 @@ func TestMoveRenameDelete(t *testing.T) {
 		UnsortedRoots: []string{srcDir},
 	})}
 
-	moveRes := doJSONRequest(t, http.MethodPost, "/api/move", moveRequest{
+	moveRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/move", domain.MoveIn{
 		Password: "secret", SrcPath: original, DstDir: dstDir, Confirm: "CONFIRM",
-	}, ws.handleMove)
-	if moveRes.Code != http.StatusOK {
-		t.Fatalf("move status=%d body=%s", moveRes.Code, moveRes.Body.String())
+	})
+	if moveRes.StatusCode != http.StatusOK {
+		t.Fatalf("move status=%d body=%s", moveRes.StatusCode, readHTTPBody(t, moveRes))
 	}
 
 	moved := filepath.Join(dstDir, "Show Name S01 [12of_w0].txt")
 	renamed := filepath.Join(dstDir, "Show Name S01 [12of_w0]-renamed.txt")
-	renameRes := doJSONRequest(t, http.MethodPost, "/api/rename", renameRequest{
+	renameRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/rename", domain.RenameIn{
 		Password: "secret", OldPath: moved, NewPath: renamed, Confirm: "CONFIRM",
-	}, ws.handleRename)
-	if renameRes.Code != http.StatusOK {
-		t.Fatalf("rename status=%d body=%s", renameRes.Code, renameRes.Body.String())
+	})
+	if renameRes.StatusCode != http.StatusOK {
+		t.Fatalf("rename status=%d body=%s", renameRes.StatusCode, readHTTPBody(t, renameRes))
 	}
 
-	deleteRes := doJSONRequest(t, http.MethodPost, "/api/delete", deleteRequest{
+	deleteRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/delete", domain.DeleteIn{
 		Password: "secret", Path: renamed, Confirm: "CONFIRM",
-	}, ws.handleDelete)
-	if deleteRes.Code != http.StatusOK {
-		t.Fatalf("delete status=%d body=%s", deleteRes.Code, deleteRes.Body.String())
+	})
+	if deleteRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", deleteRes.StatusCode, readHTTPBody(t, deleteRes))
 	}
 }
 
@@ -188,23 +231,96 @@ func TestManageQueueMove(t *testing.T) {
 		SortedRoots:   []string{dstDir},
 		UnsortedRoots: []string{srcDir},
 	})}
-	queueRes := doJSONRequest(t, http.MethodPost, "/api/manage/queue", manageQueueRequest{
+	queueRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/manage/queue", domain.ManageQueueIn{
 		Action:   "move",
 		Password: "secret",
 		SrcPath:  srcFile,
 		DstDir:   dstDir,
-	}, ws.handleManageQueue)
-	if queueRes.Code != http.StatusOK {
-		t.Fatalf("queue status=%d body=%s", queueRes.Code, queueRes.Body.String())
+	})
+	if queueRes.StatusCode != http.StatusOK {
+		t.Fatalf("queue status=%d body=%s", queueRes.StatusCode, readHTTPBody(t, queueRes))
 	}
 	dstFile := filepath.Join(dstDir, "Show Name S01 [12of_w0].txt")
 	waitForFileState(t, dstFile, true)
-	statusReq := httptest.NewRequest(http.MethodGet, "/api/manage/status", nil)
-	statusRes := httptest.NewRecorder()
-	ws.handleManageStatus(statusRes, statusReq)
-	if statusRes.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", statusRes.Code, statusRes.Body.String())
+	statusRes := doAppRequest(t, ws, http.MethodGet, "/api/manage/status", nil)
+	if statusRes.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", statusRes.StatusCode, readHTTPBody(t, statusRes))
 	}
+}
+
+func TestManageCancelQueuedTask(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "unsorted")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcPathA := filepath.Join(srcDir, "Show Name S01 [12of_w0]")
+	if err := os.MkdirAll(srcPathA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4000; i++ {
+		if err := os.WriteFile(filepath.Join(srcPathA, "file"+strconv.Itoa(i)+".txt"), []byte("hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srcPathB := filepath.Join(srcDir, "Show Name S02 [12of_w0]")
+	if err := os.MkdirAll(srcPathB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcPathB, "keep.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := &WebServer{Domain: domain.New(conf.Config{
+		Password:      "secret",
+		UnsortedRoots: []string{srcDir},
+	})}
+	queueRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/manage/queue", domain.ManageQueueIn{
+		Action:   "delete",
+		Password: "secret",
+		SrcPath:  srcPathA,
+	})
+	if queueRes.StatusCode != http.StatusOK {
+		t.Fatalf("queue status=%d body=%s", queueRes.StatusCode, readHTTPBody(t, queueRes))
+	}
+	queueRes = doAppJSONRequest(t, ws, http.MethodPost, "/api/manage/queue", domain.ManageQueueIn{
+		Action:   "delete",
+		Password: "secret",
+		SrcPath:  srcPathB,
+	})
+	if queueRes.StatusCode != http.StatusOK {
+		t.Fatalf("queue status=%d body=%s", queueRes.StatusCode, readHTTPBody(t, queueRes))
+	}
+	var lastStatusBody string
+	for i := 0; i < 50; i++ {
+		statusRes := doAppRequest(t, ws, http.MethodGet, "/api/manage/status", nil)
+		statusBody := readHTTPBody(t, statusRes)
+		lastStatusBody = statusBody
+		if statusRes.StatusCode != http.StatusOK {
+			t.Fatalf("status=%d body=%s", statusRes.StatusCode, statusBody)
+		}
+		var status struct {
+			Queued []struct {
+				ID string `json:"id"`
+			} `json:"queued"`
+		}
+		if err := json.Unmarshal([]byte(statusBody), &status); err != nil {
+			t.Fatalf("decode status: %v body=%s", err, statusBody)
+		}
+		if len(status.Queued) == 0 || status.Queued[0].ID == "" {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		cancelRes := doAppJSONRequest(t, ws, http.MethodPost, "/api/manage/cancel", domain.ManageQueueIn{
+			ID: status.Queued[0].ID,
+		})
+		cancelBody := readHTTPBody(t, cancelRes)
+		if cancelRes.StatusCode == http.StatusOK {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+		lastStatusBody = cancelBody
+	}
+	t.Fatalf("cancel did not succeed, last=%s", lastStatusBody)
 }
 
 func waitForFileState(t *testing.T, path string, wantExists bool) {
@@ -226,13 +342,26 @@ func waitForFileState(t *testing.T, path string, wantExists bool) {
 func waitForManageQueueDrain(t *testing.T, ws *WebServer) {
 	t.Helper()
 	for i := 0; i < 100; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/api/manage/status", nil)
-		w := httptest.NewRecorder()
-		ws.handleManageStatus(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("manage status=%d body=%s", w.Code, w.Body.String())
+		res := doAppRequest(t, ws, http.MethodGet, "/api/manage/status", nil)
+		body := readHTTPBody(t, res)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("manage status=%d body=%s", res.StatusCode, body)
 		}
-		if strings.Contains(w.Body.String(), `"queued": []`) && strings.Contains(w.Body.String(), `"id": ""`) {
+		var status struct {
+			Running struct {
+				ID string `json:"id"`
+			} `json:"running"`
+			RunningTasks []struct {
+				ID string `json:"id"`
+			} `json:"runningTasks"`
+			Queued []struct {
+				ID string `json:"id"`
+			} `json:"queued"`
+		}
+		if err := json.Unmarshal([]byte(body), &status); err != nil {
+			t.Fatalf("decode manage status: %v body=%s", err, body)
+		}
+		if len(status.Queued) == 0 && len(status.RunningTasks) == 0 && status.Running.ID == "" {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -244,15 +373,37 @@ func errorsIsNotExist(err error) bool {
 	return err != nil && (err == fs.ErrNotExist || os.IsNotExist(err))
 }
 
-func doJSONRequest(t *testing.T, method, target string, body any, handler http.HandlerFunc) *httptest.ResponseRecorder {
+func doAppRequest(t *testing.T, ws *WebServer, method, target string, body []byte) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, "http://localhost"+target, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := ws.App().Test(req, 10_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func doAppJSONRequest(t *testing.T, ws *WebServer, method, target string, body any) *http.Response {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(method, target, bytes.NewReader(raw))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler(w, req)
-	return w
+	return doAppRequest(t, ws, method, target, raw)
+}
+
+func readHTTPBody(t *testing.T, res *http.Response) string {
+	t.Helper()
+	defer res.Body.Close()
+	byt, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(byt)
 }

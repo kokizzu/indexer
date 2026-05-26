@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -88,13 +87,8 @@ func main() {
 		}
 
 		ws := &presentation.WebServer{Domain: dom}
-		srv := &http.Server{
-			Addr:              cfg.Addr,
-			Handler:           ws.Handler(),
-			ReadHeaderTimeout: 10 * time.Second,
-		}
 		log.Printf("indexer listening on %s", cfg.Addr)
-		log.Fatal(srv.ListenAndServe())
+		ws.Start(nil)
 	case "cli":
 		if err := dom.StartClickHouse(); err != nil {
 			log.Printf("clickhouse bootstrap warning: %v", err)

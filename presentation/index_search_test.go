@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -336,6 +335,37 @@ func TestCLIReindexAndSearch(t *testing.T) {
 	}
 }
 
+func TestCLIActionDispatch(t *testing.T) {
+	dom, root := newDummyDomain(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cli := &CLI{Domain: dom, Stdout: &stdout, Stderr: &stderr}
+
+	if code := cli.Run([]string{"action", domain.ReindexAction, `{"priority":"` + root + `"}`}); code != 0 {
+		t.Fatalf("action reindex code=%d stderr=%s", code, stderr.String())
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		st := dom.Status()
+		if !st.Running && st.Indexed > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := cli.Run([]string{"action", domain.SearchAction, `{"q":"dummy","limit":10}`}); code != 0 {
+		t.Fatalf("action search code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(strings.ToLower(stdout.String()), "dummy") {
+		t.Fatalf("action search output=%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), `"statusCode"`) {
+		t.Fatalf("action search stderr metadata missing: %s", stderr.String())
+	}
+}
+
 func TestCLIManageFlow(t *testing.T) {
 	dom, root := newDummyDomain(t)
 	renameDir := filepath.Join(root, "bad.show season 1 12Ew0")
@@ -403,7 +433,7 @@ func TestCLIManageFlow(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := cli.Run([]string{"manage", "subtitle-rename", "queue", subtitlePath}); code != 0 {
+	if code := cli.Run([]string{"manage", "subtitle-rename", "queue", subtitlePath, "--password", "secret"}); code != 0 {
 		t.Fatalf("subtitle queue code=%d stderr=%s", code, stderr.String())
 	}
 	waitForManageQueueDrainDomain(t, dom)
@@ -413,12 +443,161 @@ func TestCLIManageFlow(t *testing.T) {
 	}
 }
 
+func TestCLIBatchQueueHelpers(t *testing.T) {
+	root := t.TempDir()
+	sorted := filepath.Join(root, "sorted")
+	if err := os.MkdirAll(sorted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	renameOld := filepath.Join(root, "old-name")
+	renameNew := filepath.Join(root, "New Name S01 [1of_w0]")
+	moveSrc := filepath.Join(root, "Batch Show S01 [12of_w0]")
+	for _, dir := range []string{renameOld, moveSrc} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom := domain.New(conf.Config{
+		Password:      "secret",
+		SortedRoots:   []string{sorted},
+		UnsortedRoots: []string{root},
+	})
+	cli := &CLI{Domain: dom}
+	renameRes := cli.batchQueueRenames([]manageCandidate{{
+		Path:    renameOld,
+		NewPath: renameNew,
+	}}, "secret")
+	if renameRes["queued"].(int) != 1 {
+		t.Fatalf("unexpected rename batch result: %+v", renameRes)
+	}
+	moveRes := cli.batchQueueMoves([]manageCandidate{{
+		Path: moveSrc,
+	}}, sorted, "secret")
+	if moveRes["queued"].(int) != 1 {
+		t.Fatalf("unexpected move batch result: %+v", moveRes)
+	}
+	waitForManageQueueDrainDomain(t, dom)
+	if _, err := os.Stat(renameNew); err != nil {
+		t.Fatalf("expected queued batch rename to complete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sorted, filepath.Base(moveSrc))); err != nil {
+		t.Fatalf("expected queued batch move to complete: %v", err)
+	}
+}
+
+func TestCLIBatchQueueCategorizeHelper(t *testing.T) {
+	root := t.TempDir()
+	catA := filepath.Join(root, "bad.show season 1 12Ew0")
+	catB := filepath.Join(root, "another.bad.show season 1 12Ew0")
+	for _, dir := range []string{catA, catB} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "Episode.S01E01.mkv"), []byte("video"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom := domain.New(conf.Config{
+		Password:      "secret",
+		UnsortedRoots: []string{root},
+		MoviesExts:    []string{"mkv"},
+	})
+	cli := &CLI{Domain: dom}
+	rows := []manageCandidate{
+		{Path: catA, IsDir: true},
+		{Path: catB, IsDir: true},
+	}
+	res := cli.batchQueueCategorize(rows, "secret", domain.CategorizeOptions{
+		VideosOnly:      true,
+		WatchedCount:    2,
+		RemoveEmptyDirs: true,
+	})
+	if res["queued"].(int) != 2 {
+		t.Fatalf("unexpected categorize batch result: %+v", res)
+	}
+	status := dom.ManageStatus()
+	if len(status.Queued) != 2 {
+		t.Fatalf("expected queued categorize tasks, got %+v", status)
+	}
+	for _, task := range status.Queued {
+		if !task.VideosOnly || task.WatchedCount != 2 || !task.RemoveEmptyDirs {
+			t.Fatalf("categorize options not preserved on queued task: %+v", task)
+		}
+	}
+}
+
+func TestCLIBatchQueueDeleteHelper(t *testing.T) {
+	root := t.TempDir()
+	dirA := filepath.Join(root, "delete-a")
+	dirB := filepath.Join(root, "delete-b")
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom := domain.New(conf.Config{
+		Password:      "secret",
+		UnsortedRoots: []string{root},
+	})
+	cli := &CLI{Domain: dom}
+	res := cli.batchQueueDeletes([]manageCandidate{
+		{Path: dirA, IsDir: true},
+		{Path: dirB, IsDir: true},
+	}, "secret")
+	if res["queued"].(int) != 2 {
+		t.Fatalf("unexpected delete batch result: %+v", res)
+	}
+	waitForManageQueueDrainDomain(t, dom)
+	for _, path := range []string{dirA, dirB} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected queued batch delete to remove %s, err=%v", path, err)
+		}
+	}
+}
+
+func TestCLIBatchCancelManageTasks(t *testing.T) {
+	root := t.TempDir()
+	dirA := filepath.Join(root, "cancel-a")
+	dirB := filepath.Join(root, "cancel-b")
+	for _, dir := range []string{dirA, dirB} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dom := domain.New(conf.Config{
+		Password:      "secret",
+		UnsortedRoots: []string{root},
+	})
+	if _, err := dom.QueueDelete("secret", dirA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dom.QueueDelete("secret", dirB); err != nil {
+		t.Fatal(err)
+	}
+	status := dom.ManageStatus()
+	if len(status.Queued) < 2 {
+		t.Fatalf("expected queued tasks, got %+v", status)
+	}
+	cli := &CLI{Domain: dom}
+	res := cli.batchCancelManageTasks([]string{status.Queued[0].ID, status.Queued[1].ID})
+	if res["cancelled"].(int) != 2 {
+		t.Fatalf("unexpected batch cancel result: %+v", res)
+	}
+	status = dom.ManageStatus()
+	if len(status.Queued) != 0 {
+		t.Fatalf("expected empty queue after cancel, got %+v", status)
+	}
+}
+
 func waitForManageQueueDrainDomain(t *testing.T, dom *domain.Domain) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		status := dom.ManageStatus()
-		if status.Running.ID == "" && len(status.Queued) == 0 {
+		if len(status.RunningTasks) == 0 && status.Running.ID == "" && len(status.Queued) == 0 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -430,11 +609,9 @@ func TestWebAPIReindexAndSearch(t *testing.T) {
 	dom, root := newDummyDomain(t)
 	ws := &WebServer{Domain: dom}
 
-	reindexReq := httptest.NewRequest(http.MethodPost, "/api/reindex?priority="+root, nil)
-	reindexRes := httptest.NewRecorder()
-	ws.handleReindex(reindexRes, reindexReq)
-	if reindexRes.Code != http.StatusOK {
-		t.Fatalf("reindex status=%d body=%s", reindexRes.Code, reindexRes.Body.String())
+	reindexRes := doAppRequest(t, ws, http.MethodPost, "/api/reindex?priority="+root, nil)
+	if reindexRes.StatusCode != http.StatusOK {
+		t.Fatalf("reindex status=%d body=%s", reindexRes.StatusCode, readHTTPBody(t, reindexRes))
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -442,15 +619,14 @@ func TestWebAPIReindexAndSearch(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	searchReq := httptest.NewRequest(http.MethodGet, "/api/search?q=dummy", nil)
-	searchRes := httptest.NewRecorder()
-	ws.handleSearch(searchRes, searchReq)
-	if searchRes.Code != http.StatusOK {
-		t.Fatalf("search status=%d body=%s", searchRes.Code, searchRes.Body.String())
+	searchRes := doAppRequest(t, ws, http.MethodGet, "/api/search?q=dummy", nil)
+	searchBody := readHTTPBody(t, searchRes)
+	if searchRes.StatusCode != http.StatusOK {
+		t.Fatalf("search status=%d body=%s", searchRes.StatusCode, searchBody)
 	}
 	var page model.SearchPage
-	if err := json.Unmarshal(searchRes.Body.Bytes(), &page); err != nil {
-		t.Fatalf("search unmarshal: %v body=%s", err, searchRes.Body.String())
+	if err := json.Unmarshal([]byte(searchBody), &page); err != nil {
+		t.Fatalf("search unmarshal: %v body=%s", err, searchBody)
 	}
 	if page.Total == 0 || len(page.Rows) == 0 {
 		t.Fatalf("expected paged search results, got %+v", page)
@@ -465,20 +641,18 @@ func TestWebAPIReindexAndSearch(t *testing.T) {
 		t.Fatalf("web search should keep absolute path for copy action: %+v", page.Rows[0])
 	}
 
-	browseReq := httptest.NewRequest(http.MethodGet, "/api/browse?path="+root, nil)
-	browseRes := httptest.NewRecorder()
-	ws.handleBrowse(browseRes, browseReq)
-	if browseRes.Code != http.StatusOK {
-		t.Fatalf("browse status=%d body=%s", browseRes.Code, browseRes.Body.String())
+	browseRes := doAppRequest(t, ws, http.MethodGet, "/api/browse?path="+root, nil)
+	browseBody := readHTTPBody(t, browseRes)
+	if browseRes.StatusCode != http.StatusOK {
+		t.Fatalf("browse status=%d body=%s", browseRes.StatusCode, browseBody)
 	}
-	if strings.Contains(strings.ToLower(browseRes.Body.String()), "password") {
-		t.Fatalf("browse leaked sensitive content: %s", browseRes.Body.String())
+	if strings.Contains(strings.ToLower(browseBody), "password") {
+		t.Fatalf("browse leaked sensitive content: %s", browseBody)
 	}
 
-	deniedReq := httptest.NewRequest(http.MethodGet, "/api/browse?path="+filepath.Dir(root), nil)
-	deniedRes := httptest.NewRecorder()
-	ws.handleBrowse(deniedRes, deniedReq)
-	if deniedRes.Code == http.StatusOK {
-		t.Fatalf("browse should reject project dir, got body=%s", deniedRes.Body.String())
+	deniedRes := doAppRequest(t, ws, http.MethodGet, "/api/browse?path="+filepath.Dir(root), nil)
+	deniedBody := readHTTPBody(t, deniedRes)
+	if deniedRes.StatusCode == http.StatusOK {
+		t.Fatalf("browse should reject project dir, got body=%s", deniedBody)
 	}
 }

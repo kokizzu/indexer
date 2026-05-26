@@ -105,6 +105,21 @@ type Suggestion struct {
 	RuleSource string `json:"ruleSource"`
 }
 
+type SuggestPathResult struct {
+	Path       string     `json:"path"`
+	Current    string     `json:"current"`
+	Suggested  string     `json:"suggested"`
+	NewPath    string     `json:"newPath"`
+	Suggestion Suggestion `json:"suggestion,omitempty"`
+}
+
+type SubtitleSuggestResult struct {
+	Path      string `json:"path"`
+	Current   string `json:"current"`
+	Suggested string `json:"suggested"`
+	NewPath   string `json:"newPath"`
+}
+
 type ManageTask struct {
 	ID         string    `json:"id"`
 	Action     string    `json:"action"`
@@ -112,15 +127,33 @@ type ManageTask struct {
 	SrcPath    string    `json:"srcPath"`
 	DstPath    string    `json:"dstPath"`
 	DstDir     string    `json:"dstDir"`
+	VideosOnly bool      `json:"videosOnly"`
+	WatchedCount int     `json:"watchedCount"`
+	RemoveEmptyDirs bool `json:"removeEmptyDirs"`
 	Message    string    `json:"message"`
 	CreatedAt  time.Time `json:"createdAt"`
 	StartedAt  time.Time `json:"startedAt"`
 	FinishedAt time.Time `json:"finishedAt"`
 }
 
+type CategorizeOptions struct {
+	VideosOnly      bool
+	WatchedCount    int
+	RemoveEmptyDirs bool
+}
+
+type CategorizeApplySummary struct {
+	RemovedAuxFiles    int
+	RemovedScreensDirs int
+	Moved              int
+	SkippedExisting    int
+	RemovedEmptyDirs   int
+}
+
 type ManageQueueStatus struct {
-	Running ManageTask   `json:"running"`
-	Queued  []ManageTask `json:"queued"`
+	Running      ManageTask   `json:"running"`
+	RunningTasks []ManageTask `json:"runningTasks"`
+	Queued       []ManageTask `json:"queued"`
 }
 
 type Domain struct {
@@ -134,7 +167,8 @@ type Domain struct {
 	manageMu      sync.RWMutex
 	manageCond    *sync.Cond
 	manageQueue   []*ManageTask
-	manageRunning *ManageTask
+	manageRunning map[string]*ManageTask
+	manageMounts  map[string]int
 }
 
 type ReindexCheckpoint struct {
@@ -155,6 +189,12 @@ type ReindexCheckpoint struct {
 	CurrentPath    string    `json:"currentPath"`
 }
 
+type manageQueueState struct {
+	Running      *ManageTask   `json:"running,omitempty"`
+	RunningTasks []ManageTask  `json:"runningTasks,omitempty"`
+	Queued       []ManageTask  `json:"queued"`
+}
+
 type entryIndex struct {
 	ByPath        map[string]model.FileEntry
 	ChildrenByDir map[string][]model.FileEntry
@@ -166,9 +206,12 @@ func New(cfg conf.Config) *Domain {
 		Cfg:    cfg,
 		client: client,
 		Store:  model.NewStore(cfg, client),
+		manageRunning: map[string]*ManageTask{},
+		manageMounts:  map[string]int{},
 	}
 	d.manageCond = sync.NewCond(&d.manageMu)
 	d.bootstrapResumeStatus()
+	d.bootstrapManageQueue()
 	go d.manageLoop()
 	return d
 }
@@ -210,6 +253,10 @@ func (d *Domain) loadLastStatus() {
 	d.mu.Lock()
 	d.status = status
 	d.mu.Unlock()
+}
+
+func (d *Domain) bootstrapManageQueue() {
+	_ = d.loadManageQueueState()
 }
 
 func (d *Domain) EnsureProjectDirs() error {
@@ -273,12 +320,31 @@ func (d *Domain) Status() Status {
 	return d.status
 }
 
+func (d *Domain) StatusResult() (Status, ResponseCommon) {
+	return d.Status(), ResponseCommon{}
+}
+
 func (d *Domain) ManageStatus() ManageQueueStatus {
 	d.manageMu.RLock()
 	defer d.manageMu.RUnlock()
 	out := ManageQueueStatus{}
-	if d.manageRunning != nil {
-		out.Running = *d.manageRunning
+	if len(d.manageRunning) > 0 {
+		keys := make([]string, 0, len(d.manageRunning))
+		for key := range d.manageRunning {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		out.RunningTasks = make([]ManageTask, 0, len(keys))
+		for _, key := range keys {
+			task := d.manageRunning[key]
+			if task == nil {
+				continue
+			}
+			out.RunningTasks = append(out.RunningTasks, *task)
+		}
+		if len(out.RunningTasks) > 0 {
+			out.Running = out.RunningTasks[0]
+		}
 	}
 	out.Queued = make([]ManageTask, 0, len(d.manageQueue))
 	for _, task := range d.manageQueue {
@@ -292,6 +358,182 @@ func (d *Domain) ManageStatus() ManageQueueStatus {
 
 func (d *Domain) ManageHistory(limit int) ([]model.ManageHistoryEntry, error) {
 	return d.Store.ListManageHistory(limit)
+}
+
+func (d *Domain) CancelManageTask(id string) (model.ActionResponse, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return model.ActionResponse{}, errors.New("manage task id is required")
+	}
+	d.manageMu.Lock()
+	defer d.manageMu.Unlock()
+	for _, task := range d.manageRunning {
+		if task != nil && task.ID == id {
+			return model.ActionResponse{}, fmt.Errorf("task %s is already running and cannot be cancelled", id)
+		}
+	}
+	for i, task := range d.manageQueue {
+		if task == nil || task.ID != id {
+			continue
+		}
+		d.manageQueue = append(d.manageQueue[:i], d.manageQueue[i+1:]...)
+		_ = d.saveManageQueueStateLocked()
+		return model.ActionResponse{OK: true, Message: "cancelled " + id}, nil
+	}
+	return model.ActionResponse{}, fmt.Errorf("manage task %s not found in queue", id)
+}
+
+func (d *Domain) CancelManageTaskResult(id string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.CancelManageTask(id)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
+}
+
+func (d *Domain) RetryManageTask(password, id string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	entry, err := d.Store.GetManageHistory(strings.TrimSpace(id))
+	if err != nil {
+		return model.ActionResponse{}, err
+	}
+	switch entry.Action {
+	case "move":
+		return d.QueueMove(password, entry.SrcPath, entry.DstDir)
+	case "rename":
+		return d.QueueRename(password, entry.SrcPath, entry.DstPath)
+	case "delete":
+		return d.QueueDelete(password, entry.SrcPath)
+	case "categorize":
+		return d.QueueCategorize(password, entry.SrcPath, CategorizeOptions{
+			VideosOnly:      entry.VideosOnly,
+			WatchedCount:    entry.WatchedCount,
+			RemoveEmptyDirs: entry.RemoveEmptyDirs,
+		})
+	default:
+		return model.ActionResponse{}, fmt.Errorf("unsupported retry action: %s", entry.Action)
+	}
+}
+
+func (d *Domain) RetryManageTaskResult(password, id string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.RetryManageTask(password, id)
+	rc := ResponseCommon{}
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(strings.ToLower(err.Error()), "password") {
+			status = http.StatusForbidden
+		}
+		rc.SetError(status, err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
+}
+
+func (d *Domain) ManageStatusResult() (ManageQueueStatus, ResponseCommon) {
+	return d.ManageStatus(), ResponseCommon{}
+}
+
+func (d *Domain) ManageHistoryResult(limit int) ([]model.ManageHistoryEntry, ResponseCommon) {
+	out, err := d.ManageHistory(limit)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusInternalServerError, err.Error())
+		out = nil
+	}
+	return out, rc
+}
+
+func (d *Domain) loadManageQueueState() error {
+	raw, err := os.ReadFile(d.manageQueuePath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	var state manageQueueState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return err
+	}
+	d.manageMu.Lock()
+	defer d.manageMu.Unlock()
+	if d.manageRunning == nil {
+		d.manageRunning = map[string]*ManageTask{}
+	}
+	if d.manageMounts == nil {
+		d.manageMounts = map[string]int{}
+	}
+	d.manageQueue = d.manageQueue[:0]
+	seen := map[string]bool{}
+	appendQueued := func(task ManageTask) {
+		if strings.TrimSpace(task.ID) != "" && seen[task.ID] {
+			return
+		}
+		if strings.TrimSpace(task.ID) != "" {
+			seen[task.ID] = true
+		}
+		q := task
+		if strings.TrimSpace(q.Status) == "" || q.Status == "running" {
+			q.Status = "queued"
+		}
+		q.StartedAt = time.Time{}
+		d.manageQueue = append(d.manageQueue, &q)
+	}
+	if state.Running != nil {
+		appendQueued(*state.Running)
+	}
+	for _, running := range state.RunningTasks {
+		appendQueued(running)
+	}
+	for _, queued := range state.Queued {
+		appendQueued(queued)
+	}
+	d.manageRunning = map[string]*ManageTask{}
+	d.manageMounts = map[string]int{}
+	if len(d.manageQueue) > 0 {
+		d.manageCond.Signal()
+	}
+	return nil
+}
+
+func (d *Domain) saveManageQueueStateLocked() error {
+	state := manageQueueState{
+		Queued: make([]ManageTask, 0, len(d.manageQueue)),
+	}
+	if len(d.manageRunning) > 0 {
+		keys := make([]string, 0, len(d.manageRunning))
+		for key := range d.manageRunning {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		state.RunningTasks = make([]ManageTask, 0, len(keys))
+		for _, key := range keys {
+			task := d.manageRunning[key]
+			if task == nil {
+				continue
+			}
+			state.RunningTasks = append(state.RunningTasks, *task)
+		}
+		if len(state.RunningTasks) > 0 {
+			task := state.RunningTasks[0]
+			state.Running = &task
+		}
+	}
+	for _, task := range d.manageQueue {
+		if task == nil {
+			continue
+		}
+		state.Queued = append(state.Queued, *task)
+	}
+	raw, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(d.manageQueuePath(), raw, 0o644)
 }
 
 func (d *Domain) QueueMove(password, srcPath, dstDir string) (model.ActionResponse, error) {
@@ -320,6 +562,31 @@ func (d *Domain) QueueMove(password, srcPath, dstDir string) (model.ActionRespon
 	}
 	d.enqueueManageTask(task)
 	return model.ActionResponse{OK: true, Message: "queued move " + task.ID}, nil
+}
+
+func (d *Domain) QueueManageResult(action, password, srcPath, dstDir, newPath string, opts CategorizeOptions) (model.ActionResponse, ResponseCommon) {
+	var (
+		out model.ActionResponse
+		err error
+	)
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "categorize":
+		out, err = d.QueueCategorize(password, srcPath, opts)
+	case "move":
+		out, err = d.QueueMove(password, srcPath, dstDir)
+	case "rename":
+		out, err = d.QueueRename(password, srcPath, newPath)
+	case "delete":
+		out, err = d.QueueDelete(password, srcPath)
+	default:
+		err = errors.New("unknown manage action")
+	}
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
 }
 
 func (d *Domain) ValidateSortedMove(srcPath, dstDir string) error {
@@ -389,7 +656,132 @@ func (d *Domain) QueueDelete(password, path string) (model.ActionResponse, error
 	return model.ActionResponse{OK: true, Message: "queued delete " + task.ID}, nil
 }
 
-func (d *Domain) QueueCategorize(password, path string) (model.ActionResponse, error) {
+func (d *Domain) MoveNow(password, srcPath, dstDir, confirm string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	srcPath = filepath.Clean(srcPath)
+	dstDir = filepath.Clean(dstDir)
+	if err := d.AssertAllowed(srcPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.AssertAllowed(dstDir); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.ValidateSortedMove(srcPath, dstDir); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if strings.TrimSpace(confirm) != "CONFIRM" {
+		return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+	}
+	dstPath := filepath.Join(dstDir, filepath.Base(srcPath))
+	if err := d.doMove(srcPath, dstDir, dstPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	return model.ActionResponse{OK: true, Message: "moved to " + dstPath}, nil
+}
+
+func (d *Domain) MoveNowResult(password, srcPath, dstDir, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.MoveNow(password, srcPath, dstDir, confirm)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(actionStatusForErr(err), err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
+}
+
+func (d *Domain) RenameNow(password, oldPath, newPath, confirm string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	oldPath = filepath.Clean(oldPath)
+	newPath = filepath.Clean(newPath)
+	if err := d.AssertAllowed(oldPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if err := d.AssertAllowed(filepath.Dir(newPath)); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if strings.TrimSpace(confirm) != "CONFIRM" {
+		return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+	}
+	if err := d.doRename(oldPath, newPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	return model.ActionResponse{OK: true, Message: "renamed to " + newPath}, nil
+}
+
+func (d *Domain) RenameNowResult(password, oldPath, newPath, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.RenameNow(password, oldPath, newPath, confirm)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(actionStatusForErr(err), err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
+}
+
+func (d *Domain) DeleteNow(password, path, confirm string) (model.ActionResponse, error) {
+	if err := d.RequirePassword(password); err != nil {
+		return model.ActionResponse{}, err
+	}
+	path = filepath.Clean(path)
+	if err := d.AssertAllowed(path); err != nil {
+		return model.ActionResponse{}, err
+	}
+	if strings.TrimSpace(confirm) != "CONFIRM" {
+		return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+	}
+	if err := d.doDelete(path); err != nil {
+		return model.ActionResponse{}, err
+	}
+	return model.ActionResponse{OK: true, Message: "deleted " + path}, nil
+}
+
+func (d *Domain) DeleteNowResult(password, path, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.DeleteNow(password, path, confirm)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(actionStatusForErr(err), err.Error())
+		out = model.ActionResponse{}
+	}
+	return out, rc
+}
+
+func (d *Domain) doMove(srcPath, dstDir, dstPath string) error {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(srcPath, dstPath)
+}
+
+func (d *Domain) doRename(oldPath, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
+
+func (d *Domain) doDelete(path string) error {
+	return os.RemoveAll(path)
+}
+
+func actionStatusForErr(err error) int {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "password"):
+		return http.StatusForbidden
+	case strings.Contains(msg, "confirm must be confirm"):
+		return http.StatusBadRequest
+	case strings.Contains(msg, "allowed"),
+		strings.Contains(msg, "sorted form"),
+		strings.Contains(msg, "unsupported"),
+		strings.Contains(msg, "required"):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func (d *Domain) QueueCategorize(password, path string, opts CategorizeOptions) (model.ActionResponse, error) {
 	if err := d.RequirePassword(password); err != nil {
 		return model.ActionResponse{}, err
 	}
@@ -398,11 +790,14 @@ func (d *Domain) QueueCategorize(password, path string) (model.ActionResponse, e
 		return model.ActionResponse{}, err
 	}
 	task := &ManageTask{
-		ID:        d.newManageID(),
-		Action:    "categorize",
-		Status:    "queued",
-		SrcPath:   path,
-		CreatedAt: time.Now().UTC(),
+		ID:              d.newManageID(),
+		Action:          "categorize",
+		Status:          "queued",
+		SrcPath:         path,
+		VideosOnly:      opts.VideosOnly,
+		WatchedCount:    opts.WatchedCount,
+		RemoveEmptyDirs: opts.RemoveEmptyDirs,
+		CreatedAt:       time.Now().UTC(),
 	}
 	d.enqueueManageTask(task)
 	return model.ActionResponse{OK: true, Message: "queued categorize " + task.ID}, nil
@@ -412,6 +807,7 @@ func (d *Domain) enqueueManageTask(task *ManageTask) {
 	d.manageMu.Lock()
 	defer d.manageMu.Unlock()
 	d.manageQueue = append(d.manageQueue, task)
+	_ = d.saveManageQueueStateLocked()
 	d.manageCond.Signal()
 }
 
@@ -420,79 +816,173 @@ func (d *Domain) newManageID() string {
 }
 
 func (d *Domain) manageLoop() {
+	mountHints := loadMountHints()
 	for {
 		d.manageMu.Lock()
-		for len(d.manageQueue) == 0 {
+		for len(d.manageQueue) == 0 && len(d.manageRunning) == 0 {
 			d.manageCond.Wait()
 		}
-		task := d.manageQueue[0]
-		d.manageQueue = d.manageQueue[1:]
-		task.Status = "running"
-		task.StartedAt = time.Now().UTC()
-		d.manageRunning = task
-		d.manageMu.Unlock()
-
-		err := d.executeManageTask(task)
-		task.FinishedAt = time.Now().UTC()
-		if err != nil {
-			task.Status = "error"
-			task.Message = err.Error()
-		} else {
-			task.Status = "done"
-			if task.Message == "" {
-				task.Message = task.Action + " completed"
+		started := false
+		for len(d.manageRunning) < d.manageWorkerLimit(mountHints) {
+			idx := -1
+			for i, task := range d.manageQueue {
+				if task == nil {
+					continue
+				}
+				if d.canRunManageTaskLocked(task, mountHints) {
+					idx = i
+					break
+				}
 			}
+			if idx < 0 {
+				break
+			}
+			task := d.manageQueue[idx]
+			d.manageQueue = append(d.manageQueue[:idx], d.manageQueue[idx+1:]...)
+			task.Status = "running"
+			task.StartedAt = time.Now().UTC()
+			if d.manageRunning == nil {
+				d.manageRunning = map[string]*ManageTask{}
+			}
+			d.manageRunning[task.ID] = task
+			d.reserveManageTaskMountsLocked(task, mountHints)
+			_ = d.saveManageQueueStateLocked()
+			started = true
+			go d.runManageTask(task, mountHints)
 		}
-		_ = d.Store.InsertManageHistory(model.ManageHistoryEntry{
-			ID:         task.ID,
-			Action:     task.Action,
-			Status:     task.Status,
-			SrcPath:    task.SrcPath,
-			DstPath:    task.DstPath,
-			Message:    task.Message,
-			CreatedAt:  task.CreatedAt.UTC().Format(manageHistoryTimeLayout),
-			StartedAt:  task.StartedAt.UTC().Format(manageHistoryTimeLayout),
-			FinishedAt: task.FinishedAt.UTC().Format(manageHistoryTimeLayout),
-		})
-
-		d.manageMu.Lock()
-		d.manageRunning = nil
+		if !started {
+			d.manageCond.Wait()
+		}
 		d.manageMu.Unlock()
+	}
+}
+
+func (d *Domain) runManageTask(task *ManageTask, mountHints map[string][]string) {
+	err := d.executeManageTask(task)
+	task.FinishedAt = time.Now().UTC()
+	if err != nil {
+		task.Status = "error"
+		task.Message = err.Error()
+	} else {
+		task.Status = "done"
+		if task.Message == "" {
+			task.Message = task.Action + " completed"
+		}
+	}
+	_ = d.Store.InsertManageHistory(model.ManageHistoryEntry{
+		ID:         task.ID,
+		Action:     task.Action,
+		Status:     task.Status,
+		SrcPath:    task.SrcPath,
+		DstPath:    task.DstPath,
+		DstDir:     task.DstDir,
+		VideosOnly: task.VideosOnly,
+		WatchedCount: task.WatchedCount,
+		RemoveEmptyDirs: task.RemoveEmptyDirs,
+		Message:    task.Message,
+		CreatedAt:  task.CreatedAt.UTC().Format(manageHistoryTimeLayout),
+		StartedAt:  task.StartedAt.UTC().Format(manageHistoryTimeLayout),
+		FinishedAt: task.FinishedAt.UTC().Format(manageHistoryTimeLayout),
+	})
+	d.manageMu.Lock()
+	delete(d.manageRunning, task.ID)
+	d.releaseManageTaskMountsLocked(task, mountHints)
+	_ = d.saveManageQueueStateLocked()
+	d.manageCond.Broadcast()
+	d.manageMu.Unlock()
+}
+
+func (d *Domain) manageWorkerLimit(mountHints map[string][]string) int {
+	groups := groupRootsByMount(d.Roots(""), mountHints)
+	if len(groups) == 0 {
+		return 1
+	}
+	return len(groups)
+}
+
+func (d *Domain) taskMountKeys(task *ManageTask, mountHints map[string][]string) []string {
+	keys := []string{}
+	seen := map[string]bool{}
+	add := func(path string) {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "" {
+			return
+		}
+		key := mountPointFor(path, mountHints)
+		if key == "" {
+			key = "__unknown__"
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	add(task.SrcPath)
+	add(task.DstPath)
+	add(task.DstDir)
+	sort.Strings(keys)
+	return keys
+}
+
+func (d *Domain) canRunManageTaskLocked(task *ManageTask, mountHints map[string][]string) bool {
+	for _, key := range d.taskMountKeys(task, mountHints) {
+		if d.manageMounts[key] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *Domain) reserveManageTaskMountsLocked(task *ManageTask, mountHints map[string][]string) {
+	if d.manageMounts == nil {
+		d.manageMounts = map[string]int{}
+	}
+	for _, key := range d.taskMountKeys(task, mountHints) {
+		d.manageMounts[key]++
+	}
+}
+
+func (d *Domain) releaseManageTaskMountsLocked(task *ManageTask, mountHints map[string][]string) {
+	for _, key := range d.taskMountKeys(task, mountHints) {
+		d.manageMounts[key]--
+		if d.manageMounts[key] <= 0 {
+			delete(d.manageMounts, key)
+		}
 	}
 }
 
 func (d *Domain) executeManageTask(task *ManageTask) error {
 	switch task.Action {
 	case "move":
-		if err := os.MkdirAll(task.DstDir, 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(task.SrcPath, task.DstPath); err != nil {
+		if err := d.doMove(task.SrcPath, task.DstDir, task.DstPath); err != nil {
 			return err
 		}
 		task.Message = "moved to " + task.DstPath
 		return nil
 	case "rename":
-		if err := os.Rename(task.SrcPath, task.DstPath); err != nil {
+		if err := d.doRename(task.SrcPath, task.DstPath); err != nil {
 			return err
 		}
 		task.Message = "renamed to " + task.DstPath
 		return nil
 	case "delete":
-		if err := os.RemoveAll(task.SrcPath); err != nil {
+		if err := d.doDelete(task.SrcPath); err != nil {
 			return err
 		}
 		task.Message = "deleted " + task.SrcPath
 		return nil
 	case "categorize":
-		out, err := d.runCategorize(task.SrcPath, true)
+		out, err := d.runCategorize(task.SrcPath, true, CategorizeOptions{
+			VideosOnly:      task.VideosOnly,
+			WatchedCount:    task.WatchedCount,
+			RemoveEmptyDirs: task.RemoveEmptyDirs,
+		})
 		if err != nil {
 			return err
 		}
-		task.Message = strings.TrimSpace(out)
-		if task.Message == "" {
-			task.Message = "categorize completed for " + task.SrcPath
-		}
+		summary := parseCategorizeApplySummary(out)
+		task.Message = formatCategorizeApplySummary(task.SrcPath, summary, out)
 		return nil
 	default:
 		return fmt.Errorf("unknown manage action: %s", task.Action)
@@ -517,6 +1007,15 @@ func (d *Domain) StartReindex(priority string) (model.ActionResponse, bool) {
 	}
 	go d.runReindex(priority)
 	return model.ActionResponse{OK: true, Message: "reindex started"}, true
+}
+
+func (d *Domain) StartReindexResult(priority string) (model.ActionResponse, ResponseCommon) {
+	out, _ := d.StartReindex(priority)
+	rc := ResponseCommon{}
+	if !out.OK {
+		rc.SetError(http.StatusBadRequest, out.Message)
+	}
+	return out, rc
 }
 
 func (d *Domain) Reindex(priority string) model.ActionResponse {
@@ -765,11 +1264,31 @@ func (d *Domain) SearchPage(q, kind string, limit, offset int) (model.SearchPage
 	return d.Store.SearchPage(q, kind, limit, offset)
 }
 
+func (d *Domain) SearchPageResult(q, kind string, limit, offset int) (model.SearchPage, ResponseCommon) {
+	out, err := d.SearchPage(q, kind, limit, offset)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusInternalServerError, err.Error())
+		out = model.SearchPage{}
+	}
+	return out, rc
+}
+
 func (d *Domain) Duplicates() ([]model.DuplicateGroup, error) {
 	return d.Store.Duplicates()
 }
 
-func (d *Domain) CategorizePreview(path string, previewLimit int) (model.CategorizePreview, error) {
+func (d *Domain) DuplicatesResult() ([]model.DuplicateGroup, ResponseCommon) {
+	out, err := d.Duplicates()
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusInternalServerError, err.Error())
+		out = []model.DuplicateGroup{}
+	}
+	return out, rc
+}
+
+func (d *Domain) CategorizePreview(path string, previewLimit int, opts CategorizeOptions) (model.CategorizePreview, error) {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if err := d.AssertAllowed(path); err != nil {
 		return model.CategorizePreview{}, err
@@ -777,21 +1296,35 @@ func (d *Domain) CategorizePreview(path string, previewLimit int) (model.Categor
 	if previewLimit <= 0 {
 		previewLimit = 200
 	}
-	out, err := d.runCategorizePreview(path, previewLimit)
+	out, err := d.runCategorizePreview(path, previewLimit, opts)
 	if err != nil {
 		return model.CategorizePreview{}, err
 	}
 	return parseCategorizePreview(path, out), nil
 }
 
-func (d *Domain) runCategorizePreview(path string, previewLimit int) (string, error) {
+func (d *Domain) CategorizePreviewResult(path string, previewLimit int, opts CategorizeOptions) (model.CategorizePreview, ResponseCommon) {
+	out, err := d.CategorizePreview(path, previewLimit, opts)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		out = model.CategorizePreview{}
+	}
+	return out, rc
+}
+
+func (d *Domain) runCategorizePreview(path string, previewLimit int, opts CategorizeOptions) (string, error) {
 	scriptPath, err := findProjectFile("categorize_episode_files.py")
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", scriptPath, "--root", path, "--preview-limit", strconv.Itoa(previewLimit))
+	args := []string{scriptPath, "--root", path, "--preview-limit", strconv.Itoa(previewLimit), "--watched-count", strconv.Itoa(opts.WatchedCount)}
+	if opts.VideosOnly {
+		args = append(args, "--videos-only")
+	}
+	cmd := exec.CommandContext(ctx, "python3", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("categorize preview failed: %w (%s)", err, strings.TrimSpace(string(out)))
@@ -804,6 +1337,7 @@ func parseCategorizePreview(path, out string) model.CategorizePreview {
 		Path:   path,
 		Output: out,
 	}
+	groupMap := map[string]*model.CategorizePreviewGroup{}
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -817,16 +1351,80 @@ func parseCategorizePreview(path, out string) model.CategorizePreview {
 		case strings.Contains(line, " -> "):
 			parts := strings.SplitN(line, " -> ", 2)
 			if len(parts) == 2 {
+				source := strings.TrimSpace(parts[0])
+				target := strings.TrimSpace(parts[1])
+				kind := categorizePreviewOperationKind(source)
+				targetDir := filepath.Dir(target)
+				if targetDir == "." {
+					targetDir = ""
+				}
 				res.Operations = append(res.Operations, model.CategorizePreviewOperation{
-					Source: strings.TrimSpace(parts[0]),
-					Target: strings.TrimSpace(parts[1]),
+					Source:    source,
+					Target:    target,
+					Kind:      kind,
+					TargetDir: targetDir,
+				})
+				switch kind {
+				case "subtitle":
+					res.SubtitleMoves++
+				case "auxiliary":
+					res.AuxiliaryMoves++
+				default:
+					res.VideoMoves++
+				}
+				key := targetDir
+				group := groupMap[key]
+				if group == nil {
+					group = &model.CategorizePreviewGroup{TargetDir: targetDir}
+					groupMap[key] = group
+				}
+				group.Count++
+				switch kind {
+				case "subtitle":
+					group.SubtitleMoves++
+				case "auxiliary":
+					group.AuxiliaryMoves++
+				default:
+					group.VideoMoves++
+				}
+			}
+		case strings.Contains(line, " :: "):
+			parts := strings.SplitN(line, " :: ", 2)
+			if len(parts) == 2 {
+				candidates := strings.Split(strings.TrimSpace(parts[1]), ", ")
+				res.AmbiguousSubtitles = append(res.AmbiguousSubtitles, model.AmbiguousSubtitle{
+					Video:      strings.TrimSpace(parts[0]),
+					Candidates: candidates,
 				})
 			}
 		case strings.Contains(strings.ToLower(line), "preview truncated"):
 			res.Truncated = true
 		}
 	}
+	if len(groupMap) > 0 {
+		keys := make([]string, 0, len(groupMap))
+		for key := range groupMap {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		res.Groups = make([]model.CategorizePreviewGroup, 0, len(keys))
+		for _, key := range keys {
+			res.Groups = append(res.Groups, *groupMap[key])
+		}
+	}
 	return res
+}
+
+func categorizePreviewOperationKind(source string) string {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(source)))
+	switch ext {
+	case ".srt", ".sub", ".idx", ".ass", ".ssa", ".vtt":
+		return "subtitle"
+	case ".exe", ".nfo", ".txt", ".url", ".jpg", ".jpeg", ".png", ".gif":
+		return "auxiliary"
+	default:
+		return "video"
+	}
 }
 
 func atoiLoose(s string) int {
@@ -834,16 +1432,65 @@ func atoiLoose(s string) int {
 	return v
 }
 
-func (d *Domain) runCategorize(path string, apply bool) (string, error) {
+func parseCategorizeApplySummary(out string) CategorizeApplySummary {
+	var res CategorizeApplySummary
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Removed auxiliary files:"):
+			res.RemovedAuxFiles = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Removed auxiliary files:")))
+		case strings.HasPrefix(line, "Removed Screens directories:"):
+			res.RemovedScreensDirs = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Removed Screens directories:")))
+		case strings.HasPrefix(line, "Completed."):
+			for _, field := range strings.Fields(line) {
+				if strings.HasPrefix(field, "moved=") {
+					res.Moved = atoiLoose(strings.TrimPrefix(field, "moved="))
+				}
+				if strings.HasPrefix(field, "skipped_existing=") {
+					res.SkippedExisting = atoiLoose(strings.TrimPrefix(field, "skipped_existing="))
+				}
+			}
+		case strings.HasPrefix(line, "Removed empty directories:"):
+			res.RemovedEmptyDirs = atoiLoose(strings.TrimSpace(strings.TrimPrefix(line, "Removed empty directories:")))
+		}
+	}
+	return res
+}
+
+func formatCategorizeApplySummary(path string, summary CategorizeApplySummary, raw string) string {
+	parts := []string{
+		"categorize completed",
+		"moved=" + strconv.Itoa(summary.Moved),
+		"skipped_existing=" + strconv.Itoa(summary.SkippedExisting),
+		"removed_aux=" + strconv.Itoa(summary.RemovedAuxFiles),
+		"removed_screens=" + strconv.Itoa(summary.RemovedScreensDirs),
+	}
+	if summary.RemovedEmptyDirs > 0 {
+		parts = append(parts, "removed_empty_dirs="+strconv.Itoa(summary.RemovedEmptyDirs))
+	}
+	msg := strings.Join(parts, " ")
+	if strings.TrimSpace(raw) == "" {
+		return msg + " path=" + path
+	}
+	return msg
+}
+
+func (d *Domain) runCategorize(path string, apply bool, opts CategorizeOptions) (string, error) {
 	scriptPath, err := findProjectFile("categorize_episode_files.py")
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	args := []string{scriptPath, "--root", path, "--preview-limit", "120"}
+	args := []string{scriptPath, "--root", path, "--preview-limit", "120", "--watched-count", strconv.Itoa(opts.WatchedCount)}
+	if opts.VideosOnly {
+		args = append(args, "--videos-only")
+	}
 	if apply {
-		args = append(args, "--apply", "--remove-empty-dirs")
+		args = append(args, "--apply")
+		if opts.RemoveEmptyDirs {
+			args = append(args, "--remove-empty-dirs")
+		}
 	}
 	cmd := exec.CommandContext(ctx, "python3", args...)
 	out, err := cmd.CombinedOutput()
@@ -945,6 +1592,16 @@ func (d *Domain) Browse(path string) ([]model.BrowseEntry, error) {
 	return d.Store.Browse(path, d.Cfg.AllRoots())
 }
 
+func (d *Domain) BrowseResult(path string) ([]model.BrowseEntry, ResponseCommon) {
+	out, err := d.Browse(path)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		out = []model.BrowseEntry{}
+	}
+	return out, rc
+}
+
 func SuggestName(base string) string {
 	return SuggestDetails(base).Suggested
 }
@@ -1005,6 +1662,23 @@ func (d *Domain) SuggestPath(path string) Suggestion {
 		}
 	}
 	return SuggestDetails(filepath.Base(path))
+}
+
+func (d *Domain) SuggestPathResult(path string) (SuggestPathResult, ResponseCommon) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	rc := ResponseCommon{}
+	if err := d.AssertAllowed(path); err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		return SuggestPathResult{}, rc
+	}
+	details := d.SuggestPath(path)
+	return SuggestPathResult{
+		Path:       path,
+		Current:    filepath.Base(path),
+		Suggested:  details.Suggested,
+		NewPath:    filepath.Join(filepath.Dir(path), details.Suggested),
+		Suggestion: details,
+	}, rc
 }
 
 func SuggestDetails(base string) Suggestion {
@@ -1241,6 +1915,26 @@ func (d *Domain) SuggestSubtitleRename(path string) (string, error) {
 	return filepath.Join(parent, targetName), nil
 }
 
+func (d *Domain) SuggestSubtitleRenameResult(path string) (SubtitleSuggestResult, ResponseCommon) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	rc := ResponseCommon{}
+	if err := d.AssertAllowed(path); err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		return SubtitleSuggestResult{}, rc
+	}
+	newPath, err := d.SuggestSubtitleRename(path)
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		return SubtitleSuggestResult{}, rc
+	}
+	return SubtitleSuggestResult{
+		Path:      path,
+		Current:   filepath.Base(path),
+		Suggested: filepath.Base(newPath),
+		NewPath:   newPath,
+	}, rc
+}
+
 func (d *Domain) ScanSubtitleRenameCandidates(path string, limit int) ([]model.SubtitleRenameCandidate, error) {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if err := d.AssertAllowed(path); err != nil {
@@ -1296,6 +1990,16 @@ func (d *Domain) ScanSubtitleRenameCandidates(path string, limit int) ([]model.S
 	})
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
 	return out, nil
+}
+
+func (d *Domain) ScanSubtitleRenameCandidatesResult(path string, limit int) ([]model.SubtitleRenameCandidate, ResponseCommon) {
+	out, err := d.ScanSubtitleRenameCandidates(path, limit)
+	rc := ResponseCommon{}
+	if err != nil {
+		rc.SetError(http.StatusBadRequest, err.Error())
+		out = []model.SubtitleRenameCandidate{}
+	}
+	return out, rc
 }
 
 func minInt(a, b int) int {
@@ -1527,6 +2231,10 @@ func (d *Domain) checkpointPath() string {
 
 func (d *Domain) entriesStatePath() string {
 	return filepath.Join("_tmpdb", "reindex_entries.jsonl")
+}
+
+func (d *Domain) manageQueuePath() string {
+	return filepath.Join("_tmpdb", "manage_queue.json")
 }
 
 func (d *Domain) lastStatusPath() string {
