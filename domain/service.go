@@ -45,6 +45,7 @@ type Status struct {
 	Running         bool            `json:"running"`
 	StartedAt       time.Time       `json:"startedAt"`
 	FinishedAt      time.Time       `json:"finishedAt"`
+	Duration        string          `json:"duration"`
 	Resumed         bool            `json:"resumed"`
 	ResumedEntries  int             `json:"resumedEntries"`
 	WorkerCount     int             `json:"workerCount"`
@@ -325,7 +326,11 @@ func (d *Domain) Status() Status {
 }
 
 func (d *Domain) StatusResult() (Status, ResponseCommon) {
-	return d.Status(), ResponseCommon{}
+	out := d.Status()
+	if out.Duration == "" {
+		out.Duration = formatStatusDuration(out.StartedAt, out.FinishedAt)
+	}
+	return out, ResponseCommon{}
 }
 
 func (d *Domain) ManageStatus() ManageQueueStatus {
@@ -1265,7 +1270,7 @@ func (d *Domain) StartReindex(priority string) (model.ActionResponse, bool) {
 	}
 	d.status = Status{
 		Running:      true,
-		StartedAt:    time.Now(),
+		StartedAt:    time.Now().UTC(),
 		PriorityRoot: priority,
 	}
 	go d.runReindex(priority)
@@ -1292,7 +1297,7 @@ func (d *Domain) Reindex(priority string) model.ActionResponse {
 	d.mu.Lock()
 	d.status = Status{
 		Running:      true,
-		StartedAt:    time.Now(),
+		StartedAt:    time.Now().UTC(),
 		PriorityRoot: priority,
 	}
 	d.mu.Unlock()
@@ -1307,12 +1312,13 @@ func (d *Domain) Reindex(priority string) model.ActionResponse {
 func (d *Domain) runReindex(priority string) {
 	status := Status{
 		Running:      true,
-		StartedAt:    time.Now(),
+		StartedAt:    time.Now().UTC(),
 		PriorityRoot: priority,
 	}
 	defer func() {
 		status.Running = false
-		status.FinishedAt = time.Now()
+		status.FinishedAt = time.Now().UTC()
+		status.Duration = formatStatusDuration(status.StartedAt, status.FinishedAt)
 		d.mu.Lock()
 		d.status = status
 		d.mu.Unlock()
@@ -2540,7 +2546,7 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 	processed := map[string]struct{}{}
 	status := Status{
 		Running:      true,
-		StartedAt:    time.Now(),
+		StartedAt:    time.Now().UTC(),
 		PriorityRoot: priority,
 		Mounts:       mounts,
 	}
@@ -2560,7 +2566,7 @@ func (d *Domain) loadResumeState(priority string, mounts []MountProgress) ([]mod
 			}
 		}
 		if raw != nil && ck.PriorityRoot == priority {
-			status.StartedAt = ck.StartedAt
+			status.StartedAt = ck.StartedAt.UTC()
 			status.Resumed = ck.Resumed
 			status.ResumedEntries = ck.ResumedEntries
 			status.EstimatedRoots = ck.EstimatedRoots
@@ -2667,6 +2673,23 @@ func buildProgressTree(roots []RootInfo, mounts map[string][]string, rootTotals 
 		out = append(out, *mp)
 	}
 	return out
+}
+
+func formatStatusDuration(startedAt, finishedAt time.Time) string {
+	if startedAt.IsZero() {
+		return ""
+	}
+	if finishedAt.IsZero() {
+		finishedAt = time.Now().UTC()
+	}
+	if finishedAt.Before(startedAt) {
+		return ""
+	}
+	d := finishedAt.Sub(startedAt).Round(time.Second)
+	if d < time.Second {
+		return "0s"
+	}
+	return d.String()
 }
 
 func applyProgressEntry(status *Status, entry model.FileEntry) {

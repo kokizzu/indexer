@@ -6,7 +6,7 @@
 
   let query = '';
   let dirChecked = true;
-  let fileChecked = true;
+  let fileChecked = false;
   let filterText = '';
   let relativeTime = true;
   let rows = [];

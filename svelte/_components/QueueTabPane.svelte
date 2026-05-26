@@ -15,6 +15,7 @@
   let resultText = '';
   let queueTimer = null;
   let historyTimer = null;
+  let mounted = false;
 
   function apiUrl(key, fallback) {
     return IndexerApi[key] || fallback;
@@ -178,12 +179,31 @@
     refreshHistory();
   }
 
+  function syncPolling() {
+    if (!mounted) return;
+    const shouldPoll = $activeTab === 'queue' && ((runningTasks && runningTasks.length > 0) || (queued && queued.length > 0));
+    if (shouldPoll && !queueTimer) {
+      queueTimer = window.setInterval(refreshQueue, 3000);
+    } else if (!shouldPoll && queueTimer) {
+      window.clearInterval(queueTimer);
+      queueTimer = null;
+    }
+    if (shouldPoll && !historyTimer) {
+      historyTimer = window.setInterval(refreshHistory, 5000);
+    } else if (!shouldPoll && historyTimer) {
+      window.clearInterval(historyTimer);
+      historyTimer = null;
+    }
+  }
+
+  $: syncPolling();
+
   onMount(async () => {
     await Promise.all([refreshQueue(), refreshHistory()]);
     window.addEventListener('indexer:queueRefreshRequest', handleQueueRefreshRequest);
     window.addEventListener('indexer:historyRefreshRequest', handleHistoryRefreshRequest);
-    queueTimer = window.setInterval(refreshQueue, 3000);
-    historyTimer = window.setInterval(refreshHistory, 5000);
+    mounted = true;
+    syncPolling();
   });
 
   onDestroy(() => {

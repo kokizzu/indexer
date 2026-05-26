@@ -7717,7 +7717,7 @@ ${component_stack}
   var root_62 = from_html(`<div class="empty">No mounted root progress yet</div>`);
   var root_92 = from_html(`<div class="rootCard"><div><span class="pill"> </span> </div> <div class="mono" style="color:var(--muted); margin-top:3px"><!> / <!></div> <div class="progressBar" style="margin-top:4px"><div class="progressFill"></div></div></div>`);
   var root_82 = from_html(`<div class="mountCard"><div><strong> </strong> <span class="mono"> </span></div> <div class="progressBar" style="margin:6px 0 8px"><div class="progressFill"></div></div> <!></div>`);
-  var root_18 = from_html(`<section id="tab-indexer"><section class="hero"><div class="card"><div class="cardInner"><h1>Indexer</h1> <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p> <div class="row" style="margin-top:14px"><button> </button> <select multiple="" size="5" style="min-width:340px"></select></div> <div class="progressWrap"><div class="progressBar"><div class="progressFill"></div></div> <div class="progressMeta"> </div></div> <div class="heroMeta"><div class="metric"><div class="metricLabel">Workers</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Roots</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Files / Dirs</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Indexed Size</div><div class="metricValue"></div></div></div></div></div> <div class="card"><div class="cardInner"><h2>Status</h2> <div class="statusBox"><!></div></div></div></section> <div class="card"><div class="cardInner"><h2>Per Root Progress</h2> <div class="progressGrid"><!></div></div></div></section>`);
+  var root_18 = from_html(`<section id="tab-indexer"><section class="hero"><div class="card"><div class="cardInner"><h1>Indexer</h1> <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p> <div class="row" style="margin-top:14px"><button> </button> <select multiple="" size="5" style="min-width:340px"></select></div> <div class="progressWrap"><div class="progressBar"><div class="progressFill"></div></div> <div class="progressMeta"> </div></div> <div class="heroMeta"><div class="metric"><div class="metricLabel">Workers</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Roots</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Files / Dirs</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Indexed Size</div><div class="metricValue"></div></div> <div class="metric"><div class="metricLabel">Duration</div><div class="metricValue mono"> </div></div></div></div></div> <div class="card"><div class="cardInner"><h2>Status</h2> <div class="statusBox"><!></div></div></div></section> <div class="card"><div class="cardInner"><h2>Per Root Progress</h2> <div class="progressGrid"><!></div></div></div></section>`);
   function IndexerTabPane($$anchor, $$props) {
     push($$props, false);
     const $activeTab = () => store_get(activeTab, "$activeTab", $$stores);
@@ -7729,6 +7729,7 @@ ${component_stack}
     let startingReindex = mutable_source(false);
     let statusError = mutable_source("");
     let pollTimer = null;
+    let mounted = false;
     function apiUrl(key2, fallback2) {
       return jsApi_GEN_default[key2] || fallback2;
     }
@@ -7752,6 +7753,7 @@ ${component_stack}
       const s = snapshot2 || {};
       return [
         "resumed=" + Boolean(s.resumed) + "  workers=" + (s.activeWorkers || 0) + "/" + (s.workerCount || 0) + "  roots=" + (s.estimatedRoots || 0) + "/" + (s.totalRoots || 0),
+        "duration=" + (s.duration || "0s"),
         "estimated=" + formatBytes(s.totalBytes || 0) + "  processed=" + formatBytes(s.processedBytes || 0) + "  indexed=" + (s.indexed || 0) + "  files=" + (s.files || 0) + "  dirs=" + (s.directories || 0),
         "current=" + (s.currentPath || "")
       ].join("\n");
@@ -7802,13 +7804,29 @@ ${component_stack}
         set(startingReindex, false);
       }
     }
+    function syncPolling() {
+      if (!mounted) return;
+      const shouldPoll = $activeTab() === "indexer" && Boolean(get2(status)?.running);
+      if (shouldPoll && !pollTimer) {
+        pollTimer = window.setInterval(refreshStatus2, 3e3);
+      } else if (!shouldPoll && pollTimer) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
     onMount(async () => {
       await Promise.all([loadRoots(), refreshStatus2()]);
-      pollTimer = window.setInterval(refreshStatus2, 3e3);
+      mounted = true;
+      syncPolling();
     });
     onDestroy(() => {
       if (pollTimer) window.clearInterval(pollTimer);
     });
+    legacy_pre_effect(() => {
+    }, () => {
+      syncPolling();
+    });
+    legacy_pre_effect_reset();
     init();
     var section = root_18();
     let classes;
@@ -7828,11 +7846,11 @@ ${component_stack}
       template_effect(
         ($0) => {
           set_text(text_2, $0);
-          if (option_value !== (option_value = get2(root14).path)) {
-            option.value = (option.__value = get2(root14).path) ?? "";
+          if (option_value !== (option_value = (get2(root14), untrack(() => get2(root14).path)))) {
+            option.value = (option.__value = (get2(root14), untrack(() => get2(root14).path))) ?? "";
           }
         },
-        [() => rootLabel(get2(root14))]
+        [() => (get2(root14), untrack(() => rootLabel(get2(root14))))]
       );
       append($$anchor2, option);
     });
@@ -7864,31 +7882,42 @@ ${component_stack}
     reset(div_12);
     var div_14 = sibling(div_12, 2);
     var div_15 = sibling(child(div_14));
-    html(div_15, () => formatBytesHtml(get2(status).totalBytes || 0), true);
+    html(
+      div_15,
+      () => (deep_read_state(formatBytesHtml), get2(status), untrack(() => formatBytesHtml(get2(status).totalBytes || 0))),
+      true
+    );
     reset(div_15);
     reset(div_14);
+    var div_16 = sibling(div_14, 2);
+    var div_17 = sibling(child(div_16));
+    var text_7 = child(div_17, true);
+    reset(div_17);
+    reset(div_16);
     reset(div_7);
     reset(div_1);
     reset(div);
-    var div_16 = sibling(div, 2);
-    var div_17 = child(div_16);
-    var div_18 = sibling(child(div_17), 2);
-    var node = child(div_18);
+    var div_18 = sibling(div, 2);
+    var div_19 = child(div_18);
+    var div_20 = sibling(child(div_19), 2);
+    var node = child(div_20);
     {
       var consequent = ($$anchor2) => {
-        var text_7 = text();
-        template_effect(() => set_text(text_7, get2(statusError)));
-        append($$anchor2, text_7);
+        var text_8 = text();
+        template_effect(() => set_text(text_8, get2(statusError)));
+        append($$anchor2, text_8);
       };
       var consequent_1 = ($$anchor2) => {
-        var text_8 = text("loading...");
-        append($$anchor2, text_8);
+        var text_9 = text("loading...");
+        append($$anchor2, text_9);
       };
       var alternate = ($$anchor2) => {
         var pre = root_5();
-        var text_9 = child(pre, true);
+        var text_10 = child(pre, true);
         reset(pre);
-        template_effect(($0) => set_text(text_9, $0), [() => JSON.stringify(get2(status) || {}, null, 2)]);
+        template_effect(($0) => set_text(text_10, $0), [
+          () => (get2(status), untrack(() => JSON.stringify(get2(status) || {}, null, 2)))
+        ]);
         append($$anchor2, pre);
       };
       if_block(node, ($$render) => {
@@ -7897,90 +7926,90 @@ ${component_stack}
         else $$render(alternate, -1);
       });
     }
+    reset(div_20);
+    reset(div_19);
     reset(div_18);
-    reset(div_17);
-    reset(div_16);
     reset(section_1);
-    var div_19 = sibling(section_1, 2);
-    var div_20 = child(div_19);
-    var div_21 = sibling(child(div_20), 2);
-    var node_1 = child(div_21);
+    var div_21 = sibling(section_1, 2);
+    var div_22 = child(div_21);
+    var div_23 = sibling(child(div_22), 2);
+    var node_1 = child(div_23);
     {
       var consequent_2 = ($$anchor2) => {
-        var div_22 = root_62();
-        append($$anchor2, div_22);
+        var div_24 = root_62();
+        append($$anchor2, div_24);
       };
       var alternate_1 = ($$anchor2) => {
         var fragment_1 = comment();
         var node_2 = first_child(fragment_1);
-        each(node_2, 1, () => get2(status).mounts || [], index, ($$anchor3, mount2) => {
-          var div_23 = root_82();
-          var div_24 = child(div_23);
-          var strong = child(div_24);
-          var text_10 = child(strong, true);
+        each(node_2, 1, () => (get2(status), untrack(() => get2(status).mounts || [])), index, ($$anchor3, mount2) => {
+          var div_25 = root_82();
+          var div_26 = child(div_25);
+          var strong = child(div_26);
+          var text_11 = child(strong, true);
           reset(strong);
           var span = sibling(strong, 2);
-          var text_11 = child(span);
+          var text_12 = child(span);
           reset(span);
-          reset(div_24);
-          var div_25 = sibling(div_24, 2);
-          var div_26 = child(div_25);
-          reset(div_25);
-          var node_3 = sibling(div_25, 2);
-          each(node_3, 1, () => get2(mount2).roots || [], index, ($$anchor4, root14) => {
-            var div_27 = root_92();
-            var div_28 = child(div_27);
-            var span_1 = child(div_28);
-            var text_12 = child(span_1, true);
+          reset(div_26);
+          var div_27 = sibling(div_26, 2);
+          var div_28 = child(div_27);
+          reset(div_27);
+          var node_3 = sibling(div_27, 2);
+          each(node_3, 1, () => (get2(mount2), untrack(() => get2(mount2).roots || [])), index, ($$anchor4, root14) => {
+            var div_29 = root_92();
+            var div_30 = child(div_29);
+            var span_1 = child(div_30);
+            var text_13 = child(span_1, true);
             reset(span_1);
-            var text_13 = sibling(span_1, 1, true);
-            reset(div_28);
-            var div_29 = sibling(div_28, 2);
-            var node_4 = child(div_29);
-            html(node_4, () => formatBytesHtml(get2(root14).processedBytes || 0));
-            var node_5 = sibling(node_4, 2);
-            html(node_5, () => formatBytesHtml(get2(root14).totalBytes || 0));
-            reset(div_29);
-            var div_30 = sibling(div_29, 2);
-            var div_31 = child(div_30);
+            var text_14 = sibling(span_1, 1, true);
             reset(div_30);
-            reset(div_27);
+            var div_31 = sibling(div_30, 2);
+            var node_4 = child(div_31);
+            html(node_4, () => (deep_read_state(formatBytesHtml), get2(root14), untrack(() => formatBytesHtml(get2(root14).processedBytes || 0))));
+            var node_5 = sibling(node_4, 2);
+            html(node_5, () => (deep_read_state(formatBytesHtml), get2(root14), untrack(() => formatBytesHtml(get2(root14).totalBytes || 0))));
+            reset(div_31);
+            var div_32 = sibling(div_31, 2);
+            var div_33 = child(div_32);
+            reset(div_32);
+            reset(div_29);
             template_effect(
               ($0) => {
-                set_text(text_12, get2(root14).kind || "");
-                set_text(text_13, get2(root14).path || "");
-                set_style(div_31, $0);
+                set_text(text_13, (get2(root14), untrack(() => get2(root14).kind || "")));
+                set_text(text_14, (get2(root14), untrack(() => get2(root14).path || "")));
+                set_style(div_33, $0);
               },
               [
-                () => `width:${Number(get2(root14).progressPct || 0).toFixed(2)}%`
+                () => (get2(root14), untrack(() => `width:${Number(get2(root14).progressPct || 0).toFixed(2)}%`))
               ]
             );
-            append($$anchor4, div_27);
+            append($$anchor4, div_29);
           });
-          reset(div_23);
+          reset(div_25);
           template_effect(
             ($0, $1) => {
-              set_text(text_10, get2(mount2).mountPoint || "(unknown)");
-              set_text(text_11, `${$0 ?? ""}%`);
-              set_style(div_26, $1);
+              set_text(text_11, (get2(mount2), untrack(() => get2(mount2).mountPoint || "(unknown)")));
+              set_text(text_12, `${$0 ?? ""}%`);
+              set_style(div_28, $1);
             },
             [
-              () => Number(get2(mount2).progressPct || 0).toFixed(2),
-              () => `width:${Number(get2(mount2).progressPct || 0).toFixed(2)}%`
+              () => (get2(mount2), untrack(() => Number(get2(mount2).progressPct || 0).toFixed(2))),
+              () => (get2(mount2), untrack(() => `width:${Number(get2(mount2).progressPct || 0).toFixed(2)}%`))
             ]
           );
-          append($$anchor3, div_23);
+          append($$anchor3, div_25);
         });
         append($$anchor2, fragment_1);
       };
       if_block(node_1, ($$render) => {
-        if (!get2(status).mounts?.length) $$render(consequent_2);
+        if (get2(status), untrack(() => !get2(status).mounts?.length)) $$render(consequent_2);
         else $$render(alternate_1, -1);
       });
     }
+    reset(div_23);
+    reset(div_22);
     reset(div_21);
-    reset(div_20);
-    reset(div_19);
     reset(section);
     template_effect(
       ($0, $1) => {
@@ -7989,13 +8018,14 @@ ${component_stack}
         set_text(text_1, get2(startingReindex) ? "Starting..." : "Start Reindex");
         set_style(div_5, $0);
         set_text(text_3, $1);
-        set_text(text_4, `${(get2(status).activeWorkers || 0) ?? ""} / ${(get2(status).workerCount || 0) ?? ""}`);
-        set_text(text_5, `${(get2(status).estimatedRoots || 0) ?? ""} / ${(get2(status).totalRoots || 0) ?? ""}`);
-        set_text(text_6, `${(get2(status).files || 0) ?? ""} / ${(get2(status).directories || 0) ?? ""}`);
+        set_text(text_4, `${(get2(status), untrack(() => get2(status).activeWorkers || 0)) ?? ""} / ${(get2(status), untrack(() => get2(status).workerCount || 0)) ?? ""}`);
+        set_text(text_5, `${(get2(status), untrack(() => get2(status).estimatedRoots || 0)) ?? ""} / ${(get2(status), untrack(() => get2(status).totalRoots || 0)) ?? ""}`);
+        set_text(text_6, `${(get2(status), untrack(() => get2(status).files || 0)) ?? ""} / ${(get2(status), untrack(() => get2(status).directories || 0)) ?? ""}`);
+        set_text(text_7, (get2(status), untrack(() => get2(status).duration || "0s")));
       },
       [
-        () => `width:${progressPct(get2(status)).toFixed(2)}%`,
-        () => progressMeta(get2(status))
+        () => (get2(status), untrack(() => `width:${progressPct(get2(status)).toFixed(2)}%`)),
+        () => (get2(status), untrack(() => progressMeta(get2(status))))
       ]
     );
     delegated("click", button, startReindex2);
@@ -9088,6 +9118,7 @@ ${component_stack}
     let resultText = mutable_source("");
     let queueTimer = null;
     let historyTimer = null;
+    let mounted = false;
     function apiUrl(key2, fallback2) {
       return jsApi_GEN_default[key2] || fallback2;
     }
@@ -9229,12 +9260,28 @@ ${component_stack}
     function handleHistoryRefreshRequest() {
       refreshHistory();
     }
+    function syncPolling() {
+      if (!mounted) return;
+      const shouldPoll = $activeTab() === "queue" && (get2(runningTasks) && get2(runningTasks).length > 0 || get2(queued) && get2(queued).length > 0);
+      if (shouldPoll && !queueTimer) {
+        queueTimer = window.setInterval(refreshQueue, 3e3);
+      } else if (!shouldPoll && queueTimer) {
+        window.clearInterval(queueTimer);
+        queueTimer = null;
+      }
+      if (shouldPoll && !historyTimer) {
+        historyTimer = window.setInterval(refreshHistory, 5e3);
+      } else if (!shouldPoll && historyTimer) {
+        window.clearInterval(historyTimer);
+        historyTimer = null;
+      }
+    }
     onMount(async () => {
       await Promise.all([refreshQueue(), refreshHistory()]);
       window.addEventListener("indexer:queueRefreshRequest", handleQueueRefreshRequest);
       window.addEventListener("indexer:historyRefreshRequest", handleHistoryRefreshRequest);
-      queueTimer = window.setInterval(refreshQueue, 3e3);
-      historyTimer = window.setInterval(refreshHistory, 5e3);
+      mounted = true;
+      syncPolling();
     });
     onDestroy(() => {
       window.removeEventListener("indexer:queueRefreshRequest", handleQueueRefreshRequest);
@@ -9242,6 +9289,11 @@ ${component_stack}
       if (queueTimer) window.clearInterval(queueTimer);
       if (historyTimer) window.clearInterval(historyTimer);
     });
+    legacy_pre_effect(() => {
+    }, () => {
+      syncPolling();
+    });
+    legacy_pre_effect_reset();
     init();
     var section = root10();
     let classes;
@@ -9278,13 +9330,13 @@ ${component_stack}
           var text_4 = sibling(text_3, 2, true);
           reset(div_8);
           var node_2 = sibling(div_8, 2);
-          html(node_2, () => renderMetaHtml(get2(task)));
+          html(node_2, () => (get2(task), untrack(() => renderMetaHtml(get2(task)))));
           var node_3 = sibling(node_2, 2);
-          html(node_3, () => renderMessageHtml(get2(task).message || ""));
+          html(node_3, () => (get2(task), untrack(() => renderMessageHtml(get2(task).message || ""))));
           reset(div_7);
           template_effect(() => {
-            set_text(text_3, `${(get2(task).action || "") ?? ""} \u2022 ${(get2(task).srcPath || "") ?? ""}${get2(task).dstPath ? ` \u2192 ${get2(task).dstPath}` : ""} `);
-            set_text(text_4, get2(task).status || "");
+            set_text(text_3, `${(get2(task), untrack(() => get2(task).action || "")) ?? ""} \u2022 ${(get2(task), untrack(() => get2(task).srcPath || "")) ?? ""}${(get2(task), untrack(() => get2(task).dstPath ? ` \u2192 ${get2(task).dstPath}` : "")) ?? ""} `);
+            set_text(text_4, (get2(task), untrack(() => get2(task).status || "")));
           });
           append($$anchor3, div_7);
         });
@@ -9296,22 +9348,24 @@ ${component_stack}
           var text_6 = sibling(text_5, 2, true);
           reset(div_10);
           var node_5 = sibling(div_10, 2);
-          html(node_5, () => renderMetaHtml(get2(task)));
+          html(node_5, () => (get2(task), untrack(() => renderMetaHtml(get2(task)))));
           var div_11 = sibling(node_5, 2);
           var input = child(div_11);
           remove_input_defaults(input);
           var button_2 = sibling(input, 2);
           reset(div_11);
           var node_6 = sibling(div_11, 2);
-          html(node_6, () => renderMessageHtml(get2(task).message || ""));
+          html(node_6, () => (get2(task), untrack(() => renderMessageHtml(get2(task).message || ""))));
           reset(div_9);
           template_effect(
             ($0) => {
-              set_text(text_5, `${(get2(task).action || "") ?? ""} \u2022 ${(get2(task).srcPath || "") ?? ""}${get2(task).dstPath ? ` \u2192 ${get2(task).dstPath}` : ""} `);
-              set_text(text_6, get2(task).status || "");
+              set_text(text_5, `${(get2(task), untrack(() => get2(task).action || "")) ?? ""} \u2022 ${(get2(task), untrack(() => get2(task).srcPath || "")) ?? ""}${(get2(task), untrack(() => get2(task).dstPath ? ` \u2192 ${get2(task).dstPath}` : "")) ?? ""} `);
+              set_text(text_6, (get2(task), untrack(() => get2(task).status || "")));
               set_checked(input, $0);
             },
-            [() => get2(selectedQueueRows).includes(get2(task).id)]
+            [
+              () => (get2(selectedQueueRows), get2(task), untrack(() => get2(selectedQueueRows).includes(get2(task).id)))
+            ]
           );
           delegated("change", input, (event2) => toggleQueueSelection(get2(task).id, event2.currentTarget.checked));
           delegated("click", button_2, () => cancelTask2(get2(task).id));
@@ -9321,7 +9375,7 @@ ${component_stack}
       };
       if_block(node, ($$render) => {
         if (get2(queueError)) $$render(consequent);
-        else if (!get2(runningTasks).length && !get2(queued).length) $$render(consequent_1, 1);
+        else if (get2(runningTasks), get2(queued), untrack(() => !get2(runningTasks).length && !get2(queued).length)) $$render(consequent_1, 1);
         else $$render(alternate, -1);
       });
     }
@@ -9399,7 +9453,7 @@ ${component_stack}
           var text_13 = child(div_19, true);
           reset(div_19);
           var node_10 = sibling(div_19, 2);
-          html(node_10, () => renderMetaHtml(get2(item)));
+          html(node_10, () => (get2(item), untrack(() => renderMetaHtml(get2(item)))));
           var div_20 = sibling(node_10, 2);
           var button_5 = child(div_20);
           reset(div_20);
@@ -9407,12 +9461,16 @@ ${component_stack}
           {
             var consequent_5 = ($$anchor4) => {
               var div_21 = root_11();
-              html(div_21, () => renderMessageHtml(get2(item).message), true);
+              html(
+                div_21,
+                () => (get2(item), untrack(() => renderMessageHtml(get2(item).message))),
+                true
+              );
               reset(div_21);
               append($$anchor4, div_21);
             };
             if_block(node_11, ($$render) => {
-              if (get2(item).message) $$render(consequent_5);
+              if (get2(item), untrack(() => get2(item).message)) $$render(consequent_5);
             });
           }
           reset(td_5);
@@ -9420,15 +9478,17 @@ ${component_stack}
           template_effect(
             ($0) => {
               set_checked(input_1, $0);
-              set_text(text_9, get2(item).action || "");
-              set_text(text_10, get2(item).status || "");
-              set_attribute2(span_1, "title", get2(item).srcPath || "");
-              set_text(text_11, get2(item).srcPath || "");
-              set_attribute2(span_2, "title", get2(item).dstPath || "");
-              set_text(text_12, get2(item).dstPath || "");
-              set_text(text_13, get2(item).finishedAt || "");
+              set_text(text_9, (get2(item), untrack(() => get2(item).action || "")));
+              set_text(text_10, (get2(item), untrack(() => get2(item).status || "")));
+              set_attribute2(span_1, "title", (get2(item), untrack(() => get2(item).srcPath || "")));
+              set_text(text_11, (get2(item), untrack(() => get2(item).srcPath || "")));
+              set_attribute2(span_2, "title", (get2(item), untrack(() => get2(item).dstPath || "")));
+              set_text(text_12, (get2(item), untrack(() => get2(item).dstPath || "")));
+              set_text(text_13, (get2(item), untrack(() => get2(item).finishedAt || "")));
             },
-            [() => get2(selectedHistoryRows).includes(get2(item).id)]
+            [
+              () => (get2(selectedHistoryRows), get2(item), untrack(() => get2(selectedHistoryRows).includes(get2(item).id)))
+            ]
           );
           delegated("change", input_1, (event2) => toggleHistorySelection(get2(item).id, event2.currentTarget.checked));
           delegated("click", button_5, () => retryTask(get2(item).id));
@@ -9438,7 +9498,7 @@ ${component_stack}
       };
       if_block(node_8, ($$render) => {
         if (get2(historyError)) $$render(consequent_3);
-        else if (!get2(historyRows).length) $$render(consequent_4, 1);
+        else if (get2(historyRows), untrack(() => !get2(historyRows).length)) $$render(consequent_4, 1);
         else $$render(alternate_1, -1);
       });
     }
@@ -9479,7 +9539,7 @@ ${component_stack}
     const countText = mutable_source();
     let query = mutable_source("");
     let dirChecked = mutable_source(true);
-    let fileChecked = mutable_source(true);
+    let fileChecked = mutable_source(false);
     let filterText = mutable_source("");
     let relativeTime = mutable_source(true);
     let rows = mutable_source([]);

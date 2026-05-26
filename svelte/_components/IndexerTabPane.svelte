@@ -12,6 +12,7 @@
   let startingReindex = false;
   let statusError = '';
   let pollTimer = null;
+  let mounted = false;
 
   function apiUrl(key, fallback) {
     return IndexerApi[key] || fallback;
@@ -42,6 +43,7 @@
       'resumed=' + Boolean(s.resumed) +
         '  workers=' + (s.activeWorkers || 0) + '/' + (s.workerCount || 0) +
         '  roots=' + (s.estimatedRoots || 0) + '/' + (s.totalRoots || 0),
+      'duration=' + (s.duration || '0s'),
       'estimated=' + formatBytes(s.totalBytes || 0) +
         '  processed=' + formatBytes(s.processedBytes || 0) +
         '  indexed=' + (s.indexed || 0) +
@@ -104,9 +106,23 @@
     }
   }
 
+  function syncPolling() {
+    if (!mounted) return;
+    const shouldPoll = $activeTab === 'indexer' && Boolean(status?.running);
+    if (shouldPoll && !pollTimer) {
+      pollTimer = window.setInterval(refreshStatus, 3000);
+    } else if (!shouldPoll && pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  $: syncPolling();
+
   onMount(async () => {
     await Promise.all([loadRoots(), refreshStatus()]);
-    pollTimer = window.setInterval(refreshStatus, 3000);
+    mounted = true;
+    syncPolling();
   });
 
   onDestroy(() => {
@@ -137,6 +153,7 @@
           <div class="metric"><div class="metricLabel">Roots</div><div class="metricValue">{status.estimatedRoots || 0} / {status.totalRoots || 0}</div></div>
           <div class="metric"><div class="metricLabel">Files / Dirs</div><div class="metricValue">{status.files || 0} / {status.directories || 0}</div></div>
           <div class="metric"><div class="metricLabel">Indexed Size</div><div class="metricValue">{@html formatBytesHtml(status.totalBytes || 0)}</div></div>
+          <div class="metric"><div class="metricLabel">Duration</div><div class="metricValue mono">{status.duration || '0s'}</div></div>
         </div>
       </div>
     </div>
