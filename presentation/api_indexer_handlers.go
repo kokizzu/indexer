@@ -1,6 +1,8 @@
 package presentation
 
 import (
+	"net/http"
+
 	"github.com/gofiber/fiber/v2"
 
 	"indexer/domain"
@@ -33,6 +35,17 @@ func browseHandler(d *domain.Domain) fiber.Handler {
 			out, rc := execBrowse(in, d)
 			return out, &rc
 		}, false)
+	}
+}
+
+func openHandler(d *domain.Domain) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		path := c.Query("path")
+		out, rc := d.OpenFileExternally(path)
+		if err := rcErr(rc); err != nil {
+			return c.Status(rcStatus(rc, http.StatusBadRequest)).JSON(out)
+		}
+		return c.JSON(out)
 	}
 }
 

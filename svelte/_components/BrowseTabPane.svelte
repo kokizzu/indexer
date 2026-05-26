@@ -90,8 +90,13 @@
     return Number(isDir) === 1 || isDir === true ? path : parentDir(path);
   }
 
-  async function getJSON(url) {
-    const res = await fetch(url);
+  function needsPasswordPrompt() {
+    const host = String(window.location.hostname || '').trim().toLowerCase();
+    return !(host === 'localhost' || host === '127.0.0.1' || host === '::1');
+  }
+
+  async function getJSON(url, options = {}) {
+    const res = await fetch(url, options);
     const text = await res.text();
     if (!res.ok) throw new Error(text || ('HTTP ' + res.status));
     return text ? JSON.parse(text) : {};
@@ -223,6 +228,55 @@
       toast('Copied path');
     } catch (err) {
       toast('Copy failed: ' + err);
+    }
+  }
+
+  async function openExternal(path, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    try {
+      const url = new URL(apiUrl('open', '/api/open'), window.location.origin);
+      url.searchParams.set('path', path || '');
+      const res = await getJSON(url.toString());
+      toast(res?.message || 'Opened file');
+    } catch (err) {
+      toast('Open failed: ' + err);
+    }
+  }
+
+  async function renameFromBrowse(path) {
+    const oldPath = String(path || '').trim();
+    if (!oldPath) {
+      toast('Rename path is required');
+      return;
+    }
+    const nextPath = window.prompt('Rename to path', oldPath);
+    if (!nextPath) return;
+    let password = '';
+    if (needsPasswordPrompt()) {
+      password = window.prompt('Manage password?') || '';
+      if (!password) {
+        toast('Password is required');
+        return;
+      }
+    }
+    try {
+      const res = await getJSON(apiUrl('rename', '/api/rename'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password,
+          oldPath,
+          newPath: nextPath,
+          confirm: 'CONFIRM',
+        }),
+      });
+      toast(res?.message || 'Renamed');
+      await selectPath(selectedPath || parentDir(oldPath), { pushHistory: false });
+    } catch (err) {
+      toast(String(err?.message || err));
     }
   }
 
@@ -358,14 +412,22 @@
                     <div class="nameCell">
                       <span class="nameLabel cellEllipsis" title={item.path || ''}>{item.base || ''}</span>
                       <span class="rowActions">
-                        {#if item.isDir}
-                          <button class="ghost iconBtn" title="Open directory" onclick={() => selectPath(item.path || '')}>↗</button>
-                        {/if}
                         <button class="ghost iconBtn" title={item.path || ''} onclick={(event) => copyPath(item.path || '', event)}>⧉</button>
+                        {#if item.isDir === false}
+                          <button class="ghost iconBtn" title="Open file externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
+                        {/if}
+                        <button class="ghost iconBtn" title="Rename" onclick={() => renameFromBrowse(item.path || '')}>✎</button>
                       </span>
                     </div>
                   </td>
-                  <td><span class={`pill ${item.isDir ? 'pillDir' : 'pillFile'}`}>{item.isDir ? 'DIR' : 'FILE'}</span></td>
+                  <td>
+                    <span class="typeCell">
+                      <span class={`pill ${item.isDir ? 'pillDir' : 'pillFile'}`}>{item.isDir ? 'DIR' : 'FILE'}</span>
+                      {#if item.isDir}
+                        <button class="ghost iconBtn" title="Open directory" onclick={() => selectPath(item.path || '')}>↗</button>
+                      {/if}
+                    </span>
+                  </td>
                   <td>
                     {#if item.isDir}
                       <span class="fdFile tooltipish" title="descendant files">{item.fileCount || 0} F</span>
@@ -375,7 +437,7 @@
                     {/if}
                   </td>
                   <td>{@html formatBytesHtml(item.size || 0)}</td>
-                  <td class="mono">{@html formatAgeByMode(item.modifiedAt || '')}</td>
+                  <td class="mono">{@html formatAgeByMode(item.modifiedAt || '', relativeTime)}</td>
                 </tr>
               {/each}
             {/if}

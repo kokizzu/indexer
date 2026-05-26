@@ -113,20 +113,20 @@ func (s *Store) LoadEntries() ([]FileEntry, error) {
 	for _, row := range rows {
 		modifiedAt, _ := time.Parse(clickHouseTimeLayout, X.ToS(row["modifiedAt"]))
 		out = append(out, FileEntry{
-			Path:        X.ToS(row["path"]),
-			Dir:         X.ToS(row["dir"]),
-			Base:        X.ToS(row["base"]),
-			Ext:         X.ToS(row["ext"]),
-			Root:        X.ToS(row["root"]),
-			RootKind:    X.ToS(row["rootKind"]),
-			IsDir:       uint8(X.ToI(row["is_dir"])),
-			Size:        X.ToI(row["size"]),
-			SubtreeSize: X.ToI(row["subtree_size"]),
+			Path:         X.ToS(row["path"]),
+			Dir:          X.ToS(row["dir"]),
+			Base:         X.ToS(row["base"]),
+			Ext:          X.ToS(row["ext"]),
+			Root:         X.ToS(row["root"]),
+			RootKind:     X.ToS(row["rootKind"]),
+			IsDir:        uint8(X.ToI(row["is_dir"])),
+			Size:         X.ToI(row["size"]),
+			SubtreeSize:  X.ToI(row["subtree_size"]),
 			SubtreeFiles: int(X.ToI(row["subtree_files"])),
 			SubtreeDirs:  int(X.ToI(row["subtree_dirs"])),
-			ModifiedAt:  modifiedAt.UTC(),
-			Fingerprint: X.ToS(row["fingerprint"]),
-			Content:     X.ToS(row["content"]),
+			ModifiedAt:   modifiedAt.UTC(),
+			Fingerprint:  X.ToS(row["fingerprint"]),
+			Content:      X.ToS(row["content"]),
 		})
 	}
 	return out, nil
@@ -159,6 +159,41 @@ func (s *Store) ReplaceEntries(entries []FileEntry) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) RenameEntries(oldPath, newPath string) error {
+	entries, err := s.LoadEntries()
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	oldPath = filepath.Clean(oldPath)
+	newPath = filepath.Clean(newPath)
+	oldPrefix := oldPath + string(os.PathSeparator)
+	changed := false
+	for i := range entries {
+		entry := &entries[i]
+		rewrite := ""
+		switch {
+		case entry.Path == oldPath:
+			rewrite = newPath
+		case strings.HasPrefix(entry.Path, oldPrefix):
+			rewrite = newPath + strings.TrimPrefix(entry.Path, oldPath)
+		default:
+			continue
+		}
+		changed = true
+		entry.Path = rewrite
+		entry.Dir = filepath.Dir(rewrite)
+		entry.Base = filepath.Base(rewrite)
+		entry.Ext = filepath.Ext(rewrite)
+	}
+	if !changed {
+		return nil
+	}
+	return s.ReplaceEntries(entries)
 }
 
 func (s *Store) BackupEntries(path string) error {
@@ -218,19 +253,19 @@ func (s *Store) RestoreEntries(path string) error {
 
 func (s *Store) InsertManageHistory(entry ManageHistoryEntry) error {
 	payload := map[string]any{
-		"id":          entry.ID,
-		"action":      entry.Action,
-		"status":      entry.Status,
-		"src_path":    entry.SrcPath,
-		"dst_path":    entry.DstPath,
-		"dst_dir":     entry.DstDir,
-		"videos_only": boolToUInt8(entry.VideosOnly),
-		"watched_count": entry.WatchedCount,
+		"id":                entry.ID,
+		"action":            entry.Action,
+		"status":            entry.Status,
+		"src_path":          entry.SrcPath,
+		"dst_path":          entry.DstPath,
+		"dst_dir":           entry.DstDir,
+		"videos_only":       boolToUInt8(entry.VideosOnly),
+		"watched_count":     entry.WatchedCount,
 		"remove_empty_dirs": boolToUInt8(entry.RemoveEmptyDirs),
-		"message":     entry.Message,
-		"created_at":  entry.CreatedAt,
-		"started_at":  entry.StartedAt,
-		"finished_at": entry.FinishedAt,
+		"message":           entry.Message,
+		"created_at":        entry.CreatedAt,
+		"started_at":        entry.StartedAt,
+		"finished_at":       entry.FinishedAt,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -253,19 +288,19 @@ func (s *Store) ListManageHistory(limit int) ([]ManageHistoryEntry, error) {
 	out := make([]ManageHistoryEntry, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, ManageHistoryEntry{
-			ID:         X.ToS(row["id"]),
-			Action:     X.ToS(row["action"]),
-			Status:     X.ToS(row["status"]),
-			SrcPath:    X.ToS(row["src_path"]),
-			DstPath:    X.ToS(row["dst_path"]),
-			DstDir:     X.ToS(row["dst_dir"]),
-			VideosOnly: X.ToI(row["videos_only"]) != 0,
-			WatchedCount: int(X.ToI(row["watched_count"])),
+			ID:              X.ToS(row["id"]),
+			Action:          X.ToS(row["action"]),
+			Status:          X.ToS(row["status"]),
+			SrcPath:         X.ToS(row["src_path"]),
+			DstPath:         X.ToS(row["dst_path"]),
+			DstDir:          X.ToS(row["dst_dir"]),
+			VideosOnly:      X.ToI(row["videos_only"]) != 0,
+			WatchedCount:    int(X.ToI(row["watched_count"])),
 			RemoveEmptyDirs: X.ToI(row["remove_empty_dirs"]) != 0,
-			Message:    X.ToS(row["message"]),
-			CreatedAt:  X.ToS(row["createdAt"]),
-			StartedAt:  X.ToS(row["startedAt"]),
-			FinishedAt: X.ToS(row["finishedAt"]),
+			Message:         X.ToS(row["message"]),
+			CreatedAt:       X.ToS(row["createdAt"]),
+			StartedAt:       X.ToS(row["startedAt"]),
+			FinishedAt:      X.ToS(row["finishedAt"]),
 		})
 	}
 	return out, nil
@@ -281,19 +316,19 @@ func (s *Store) GetManageHistory(id string) (ManageHistoryEntry, error) {
 	}
 	row := rows[0]
 	return ManageHistoryEntry{
-		ID:         X.ToS(row["id"]),
-		Action:     X.ToS(row["action"]),
-		Status:     X.ToS(row["status"]),
-		SrcPath:    X.ToS(row["src_path"]),
-		DstPath:    X.ToS(row["dst_path"]),
-		DstDir:     X.ToS(row["dst_dir"]),
-		VideosOnly: X.ToI(row["videos_only"]) != 0,
-		WatchedCount: int(X.ToI(row["watched_count"])),
+		ID:              X.ToS(row["id"]),
+		Action:          X.ToS(row["action"]),
+		Status:          X.ToS(row["status"]),
+		SrcPath:         X.ToS(row["src_path"]),
+		DstPath:         X.ToS(row["dst_path"]),
+		DstDir:          X.ToS(row["dst_dir"]),
+		VideosOnly:      X.ToI(row["videos_only"]) != 0,
+		WatchedCount:    int(X.ToI(row["watched_count"])),
 		RemoveEmptyDirs: X.ToI(row["remove_empty_dirs"]) != 0,
-		Message:    X.ToS(row["message"]),
-		CreatedAt:  X.ToS(row["createdAt"]),
-		StartedAt:  X.ToS(row["startedAt"]),
-		FinishedAt: X.ToS(row["finishedAt"]),
+		Message:         X.ToS(row["message"]),
+		CreatedAt:       X.ToS(row["createdAt"]),
+		StartedAt:       X.ToS(row["startedAt"]),
+		FinishedAt:      X.ToS(row["finishedAt"]),
 	}, nil
 }
 
@@ -319,8 +354,8 @@ func searchWhere(q, kind string) []string {
 		where = append(where, strings.Join(tokenClauses, " AND "))
 	}
 	kind = strings.TrimSpace(strings.ToLower(kind))
-	if kind == "" {
-		kind = "dir"
+	if kind == "" || kind == "all" {
+		return where
 	}
 	switch kind {
 	case "dir":
@@ -395,18 +430,18 @@ func searchOrder(q string) string {
 		compactBase := "replaceRegexpAll(lowerUTF8(base), '[^0-9A-Za-z]+', '')"
 		compactPos := "positionCaseInsensitiveUTF8(" + compactBase + ", " + quoteSQL(compact) + ")"
 		order = append(order,
-			"(" + compactPos + " > 0) DESC",
-			"if(" + compactPos + " = 0, 1000000, " + compactPos + ") ASC",
+			"("+compactPos+" > 0) DESC",
+			"if("+compactPos+" = 0, 1000000, "+compactPos+") ASC",
 		)
 	}
 	if lowerQ != "" {
 		basePos := "positionCaseInsensitiveUTF8(lowerUTF8(base), " + quoteSQL(lowerQ) + ")"
 		contentPos := "positionCaseInsensitiveUTF8(lowerUTF8(content), " + quoteSQL(lowerQ) + ")"
 		order = append(order,
-			"(" + basePos + " > 0) DESC",
-			"if(" + basePos + " = 0, 1000000, " + basePos + ") ASC",
-			"(" + contentPos + " > 0) DESC",
-			"if(" + contentPos + " = 0, 1000000, " + contentPos + ") ASC",
+			"("+basePos+" > 0) DESC",
+			"if("+basePos+" = 0, 1000000, "+basePos+") ASC",
+			"("+contentPos+" > 0) DESC",
+			"if("+contentPos+" = 0, 1000000, "+contentPos+") ASC",
 		)
 	}
 	order = append(order, "modified_at DESC", "base ASC")
@@ -669,19 +704,19 @@ func toStringSlice(v any) []string {
 
 func marshalEntryForClickHouse(entry FileEntry) ([]byte, error) {
 	return json.Marshal(map[string]any{
-		"path":        entry.Path,
-		"dir":         entry.Dir,
-		"base":        entry.Base,
-		"ext":         entry.Ext,
-		"root":        entry.Root,
-		"rootKind":    entry.RootKind,
-		"is_dir":      entry.IsDir,
-		"size":        entry.Size,
-		"subtree_size": entry.SubtreeSize,
+		"path":          entry.Path,
+		"dir":           entry.Dir,
+		"base":          entry.Base,
+		"ext":           entry.Ext,
+		"root":          entry.Root,
+		"rootKind":      entry.RootKind,
+		"is_dir":        entry.IsDir,
+		"size":          entry.Size,
+		"subtree_size":  entry.SubtreeSize,
 		"subtree_files": entry.SubtreeFiles,
 		"subtree_dirs":  entry.SubtreeDirs,
-		"modified_at": entry.ModifiedAt.UTC().Format(clickHouseTimeLayout),
-		"fingerprint": entry.Fingerprint,
-		"content":     entry.Content,
+		"modified_at":   entry.ModifiedAt.UTC().Format(clickHouseTimeLayout),
+		"fingerprint":   entry.Fingerprint,
+		"content":       entry.Content,
 	})
 }

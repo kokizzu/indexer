@@ -6,22 +6,22 @@ import (
 )
 
 func execMove(in *domain.MoveIn, d *domain.Domain) domain.ActionOut {
-	res, rc := d.MoveNowResult(in.Password, in.SrcPath, in.DstDir, in.Confirm)
+	res, rc := d.MoveNowResult(in.RequestCommon, in.Password, in.SrcPath, in.DstDir, in.Confirm)
 	return domain.ActionOut{ResponseCommon: rc, ActionResponse: res}
 }
 
 func execRename(in *domain.RenameIn, d *domain.Domain) domain.ActionOut {
-	res, rc := d.RenameNowResult(in.Password, in.OldPath, in.NewPath, in.Confirm)
+	res, rc := d.RenameNowResult(in.RequestCommon, in.Password, in.OldPath, in.NewPath, in.Confirm)
 	return domain.ActionOut{ResponseCommon: rc, ActionResponse: res}
 }
 
 func execDelete(in *domain.DeleteIn, d *domain.Domain) domain.ActionOut {
-	res, rc := d.DeleteNowResult(in.Password, in.Path, in.Confirm)
+	res, rc := d.DeleteNowResult(in.RequestCommon, in.Password, in.Path, in.Confirm)
 	return domain.ActionOut{ResponseCommon: rc, ActionResponse: res}
 }
 
 func execManageQueue(in domain.ManageQueueIn, d *domain.Domain) domain.ActionOut {
-	res, rc := d.QueueManageResult(in.ActionValue(), in.Password, in.SrcPath, in.DstDir, in.NewPath, domain.CategorizeOptions{
+	res, rc := d.QueueManageResult(in.RequestCommon, in.ActionValue(), in.Password, in.SrcPath, in.DstDir, in.NewPath, domain.CategorizeOptions{
 		VideosOnly:      in.VideosOnly,
 		WatchedCount:    in.WatchedCount,
 		RemoveEmptyDirs: in.RemoveEmptyDirs,

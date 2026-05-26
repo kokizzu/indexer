@@ -55,6 +55,11 @@
     return item?.statusLabel || (tab === 'delete' ? 'TARGET' : '');
   }
 
+  function rootLabel(root) {
+    if (!root) return '';
+    return root.base && root.base !== root.path ? `${root.base} · ${root.path}` : (root.path || '');
+  }
+
   function showInBrowse(path, isDir, event) {
     if (event) {
       event.preventDefault();
@@ -73,7 +78,7 @@
     <label for="manageScanRoot">Scan Root</label>
     <select id="manageScanRoot" value={$manageFormState.scanRoot} onchange={(event) => requestManageFormPatch({ scanRoot: event.currentTarget.value })}>
       {#each $browseBridgeState.roots as root}
-        <option value={root}>{root}</option>
+        <option value={root.path}>{rootLabel(root)}</option>
       {/each}
     </select>
   </div>

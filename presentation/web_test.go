@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,6 +77,33 @@ func TestServeIndexAndBuiltAssets(t *testing.T) {
 	}
 	if !strings.Contains(svgBody, "<svg") {
 		t.Fatalf("favicon.svg did not look like svg content")
+	}
+}
+
+func TestOpenFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "movie.txt")
+	if err := os.WriteFile(target, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws := &WebServer{Domain: domain.New(conf.Config{
+		UnsortedRoots: []string{root},
+	})}
+	var opened string
+	ws.Domain.SetOpenLauncher(func(path string) error {
+		opened = path
+		return nil
+	})
+	res := doAppRequest(t, ws, http.MethodGet, "/api/open?path="+url.QueryEscape(target), nil)
+	body := readHTTPBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("open status=%d body=%s", res.StatusCode, body)
+	}
+	if opened != filepath.Clean(target) {
+		t.Fatalf("expected launcher path=%q got %q", filepath.Clean(target), opened)
+	}
+	if !strings.Contains(body, "opened ") {
+		t.Fatalf("expected open response, got %s", body)
 	}
 }
 

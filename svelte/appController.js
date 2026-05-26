@@ -174,6 +174,9 @@ export function initAppController() {
         case 'setManageSelectedSourceFromBrowse':
           setManageSelectedSourceFromBrowse()
           break
+        case 'prefillManageRenameFromPath':
+          prefillManageRenameFromPath(detail.path || '')
+          break
         case 'closeManageModal':
           closeManageModal()
           break
@@ -533,6 +536,20 @@ export function initAppController() {
         syncManageRenamePath,
         populateManageCategorySubdir,
       })
+    }
+
+    function prefillManageRenameFromPath(path) {
+      const clean = String(path || '').trim()
+      if (!clean) {
+        showToast('Rename path is required')
+        return
+      }
+      switchTab('manage')
+      switchManageTab('rename')
+      manageState.selectedSource = clean
+      renderManageSelectedSource()
+      syncManageRenamePath()
+      populateManageCategorySubdir(manageState.selectedSource)
     }
 
     function prefillManageFromPath(kind, fullPath) {

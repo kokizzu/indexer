@@ -122,8 +122,12 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		total := 0
 		needle := extractNeedle(query)
 		compact := extractCompactNeedle(query)
+		dirFilter := extractIsDirFilter(query)
 		for _, entry := range f.entries {
 			content := strings.ToLower(entry.Content)
+			if dirFilter >= 0 && int(entry.IsDir) != dirFilter {
+				continue
+			}
 			if compact != "" {
 				if !strings.Contains(compactContent(content), compact) {
 					continue
@@ -139,8 +143,12 @@ func (f *fakeClickHouse) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	case strings.Contains(query, "SELECT path, base, root, rootKind"):
 		needle := extractNeedle(query)
 		compact := extractCompactNeedle(query)
+		dirFilter := extractIsDirFilter(query)
 		for _, entry := range f.entries {
 			content := strings.ToLower(entry.Content)
+			if dirFilter >= 0 && int(entry.IsDir) != dirFilter {
+				continue
+			}
 			if compact != "" {
 				if !strings.Contains(compactContent(content), compact) {
 					continue
@@ -199,6 +207,17 @@ func extractCompactNeedle(query string) string {
 		return ""
 	}
 	return strings.ToLower(rest[:end])
+}
+
+func extractIsDirFilter(query string) int {
+	switch {
+	case strings.Contains(query, "AND is_dir = 1"), strings.Contains(query, "WHERE is_dir = 1"):
+		return 1
+	case strings.Contains(query, "AND is_dir = 0"), strings.Contains(query, "WHERE is_dir = 0"):
+		return 0
+	default:
+		return -1
+	}
 }
 
 func compactContent(s string) string {
@@ -639,6 +658,23 @@ func TestWebAPIReindexAndSearch(t *testing.T) {
 	}
 	if page.Rows[0].Path == "" || !strings.Contains(page.Rows[0].Path, root) {
 		t.Fatalf("web search should keep absolute path for copy action: %+v", page.Rows[0])
+	}
+	fileSearchRes := doAppRequest(t, ws, http.MethodGet, "/api/search?q=dummy&kind=file", nil)
+	fileSearchBody := readHTTPBody(t, fileSearchRes)
+	if fileSearchRes.StatusCode != http.StatusOK {
+		t.Fatalf("file search status=%d body=%s", fileSearchRes.StatusCode, fileSearchBody)
+	}
+	var filePage model.SearchPage
+	if err := json.Unmarshal([]byte(fileSearchBody), &filePage); err != nil {
+		t.Fatalf("file search unmarshal: %v body=%s", err, fileSearchBody)
+	}
+	if filePage.Total == 0 || len(filePage.Rows) == 0 {
+		t.Fatalf("expected file search results, got %+v", filePage)
+	}
+	for _, row := range filePage.Rows {
+		if row.IsDir != 0 {
+			t.Fatalf("expected file search row, got %+v", row)
+		}
 	}
 
 	browseRes := doAppRequest(t, ws, http.MethodGet, "/api/browse?path="+root, nil)

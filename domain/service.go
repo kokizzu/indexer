@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"regexp"
 	"sort"
 	"strconv"
@@ -121,19 +123,19 @@ type SubtitleSuggestResult struct {
 }
 
 type ManageTask struct {
-	ID         string    `json:"id"`
-	Action     string    `json:"action"`
-	Status     string    `json:"status"`
-	SrcPath    string    `json:"srcPath"`
-	DstPath    string    `json:"dstPath"`
-	DstDir     string    `json:"dstDir"`
-	VideosOnly bool      `json:"videosOnly"`
-	WatchedCount int     `json:"watchedCount"`
-	RemoveEmptyDirs bool `json:"removeEmptyDirs"`
-	Message    string    `json:"message"`
-	CreatedAt  time.Time `json:"createdAt"`
-	StartedAt  time.Time `json:"startedAt"`
-	FinishedAt time.Time `json:"finishedAt"`
+	ID              string    `json:"id"`
+	Action          string    `json:"action"`
+	Status          string    `json:"status"`
+	SrcPath         string    `json:"srcPath"`
+	DstPath         string    `json:"dstPath"`
+	DstDir          string    `json:"dstDir"`
+	VideosOnly      bool      `json:"videosOnly"`
+	WatchedCount    int       `json:"watchedCount"`
+	RemoveEmptyDirs bool      `json:"removeEmptyDirs"`
+	Message         string    `json:"message"`
+	CreatedAt       time.Time `json:"createdAt"`
+	StartedAt       time.Time `json:"startedAt"`
+	FinishedAt      time.Time `json:"finishedAt"`
 }
 
 type CategorizeOptions struct {
@@ -169,6 +171,7 @@ type Domain struct {
 	manageQueue   []*ManageTask
 	manageRunning map[string]*ManageTask
 	manageMounts  map[string]int
+	openLauncher  func(string) error
 }
 
 type ReindexCheckpoint struct {
@@ -190,9 +193,9 @@ type ReindexCheckpoint struct {
 }
 
 type manageQueueState struct {
-	Running      *ManageTask   `json:"running,omitempty"`
-	RunningTasks []ManageTask  `json:"runningTasks,omitempty"`
-	Queued       []ManageTask  `json:"queued"`
+	Running      *ManageTask  `json:"running,omitempty"`
+	RunningTasks []ManageTask `json:"runningTasks,omitempty"`
+	Queued       []ManageTask `json:"queued"`
 }
 
 type entryIndex struct {
@@ -203,11 +206,12 @@ type entryIndex struct {
 func New(cfg conf.Config) *Domain {
 	client := &http.Client{Timeout: 60 * time.Second}
 	d := &Domain{
-		Cfg:    cfg,
-		client: client,
-		Store:  model.NewStore(cfg, client),
+		Cfg:           cfg,
+		client:        client,
+		Store:         model.NewStore(cfg, client),
 		manageRunning: map[string]*ManageTask{},
 		manageMounts:  map[string]int{},
+		openLauncher:  defaultOpenLauncher,
 	}
 	d.manageCond = sync.NewCond(&d.manageMu)
 	d.bootstrapResumeStatus()
@@ -564,20 +568,20 @@ func (d *Domain) QueueMove(password, srcPath, dstDir string) (model.ActionRespon
 	return model.ActionResponse{OK: true, Message: "queued move " + task.ID}, nil
 }
 
-func (d *Domain) QueueManageResult(action, password, srcPath, dstDir, newPath string, opts CategorizeOptions) (model.ActionResponse, ResponseCommon) {
+func (d *Domain) QueueManageResult(req RequestCommon, action, password, srcPath, dstDir, newPath string, opts CategorizeOptions) (model.ActionResponse, ResponseCommon) {
 	var (
 		out model.ActionResponse
 		err error
 	)
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "categorize":
-		out, err = d.QueueCategorize(password, srcPath, opts)
+		out, err = d.QueueCategorizeFromRequest(req, password, srcPath, opts)
 	case "move":
-		out, err = d.QueueMove(password, srcPath, dstDir)
+		out, err = d.QueueMoveFromRequest(req, password, srcPath, dstDir)
 	case "rename":
-		out, err = d.QueueRename(password, srcPath, newPath)
+		out, err = d.QueueRenameFromRequest(req, password, srcPath, newPath)
 	case "delete":
-		out, err = d.QueueDelete(password, srcPath)
+		out, err = d.QueueDeleteFromRequest(req, password, srcPath)
 	default:
 		err = errors.New("unknown manage action")
 	}
@@ -681,8 +685,8 @@ func (d *Domain) MoveNow(password, srcPath, dstDir, confirm string) (model.Actio
 	return model.ActionResponse{OK: true, Message: "moved to " + dstPath}, nil
 }
 
-func (d *Domain) MoveNowResult(password, srcPath, dstDir, confirm string) (model.ActionResponse, ResponseCommon) {
-	out, err := d.MoveNow(password, srcPath, dstDir, confirm)
+func (d *Domain) MoveNowResult(req RequestCommon, password, srcPath, dstDir, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.MoveNowFromRequest(req, password, srcPath, dstDir, confirm)
 	rc := ResponseCommon{}
 	if err != nil {
 		rc.SetError(actionStatusForErr(err), err.Error())
@@ -712,8 +716,8 @@ func (d *Domain) RenameNow(password, oldPath, newPath, confirm string) (model.Ac
 	return model.ActionResponse{OK: true, Message: "renamed to " + newPath}, nil
 }
 
-func (d *Domain) RenameNowResult(password, oldPath, newPath, confirm string) (model.ActionResponse, ResponseCommon) {
-	out, err := d.RenameNow(password, oldPath, newPath, confirm)
+func (d *Domain) RenameNowResult(req RequestCommon, password, oldPath, newPath, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.RenameNowFromRequest(req, password, oldPath, newPath, confirm)
 	rc := ResponseCommon{}
 	if err != nil {
 		rc.SetError(actionStatusForErr(err), err.Error())
@@ -739,8 +743,8 @@ func (d *Domain) DeleteNow(password, path, confirm string) (model.ActionResponse
 	return model.ActionResponse{OK: true, Message: "deleted " + path}, nil
 }
 
-func (d *Domain) DeleteNowResult(password, path, confirm string) (model.ActionResponse, ResponseCommon) {
-	out, err := d.DeleteNow(password, path, confirm)
+func (d *Domain) DeleteNowResult(req RequestCommon, password, path, confirm string) (model.ActionResponse, ResponseCommon) {
+	out, err := d.DeleteNowFromRequest(req, password, path, confirm)
 	rc := ResponseCommon{}
 	if err != nil {
 		rc.SetError(actionStatusForErr(err), err.Error())
@@ -757,7 +761,266 @@ func (d *Domain) doMove(srcPath, dstDir, dstPath string) error {
 }
 
 func (d *Domain) doRename(oldPath, newPath string) error {
-	return os.Rename(oldPath, newPath)
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return err
+	}
+	if d.Store == nil || strings.TrimSpace(d.Cfg.ClickHouseURL) == "" {
+		return nil
+	}
+	if err := d.Store.RenameEntries(oldPath, newPath); err != nil {
+		if rollbackErr := os.Rename(newPath, oldPath); rollbackErr != nil {
+			return fmt.Errorf("update index after rename: %w (rollback failed: %v)", err, rollbackErr)
+		}
+		return fmt.Errorf("update index after rename: %w", err)
+	}
+	return nil
+}
+
+func (d *Domain) OpenFile(path string) ([]byte, string, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || path == "" {
+		return nil, "", errors.New("path is required")
+	}
+	if err := d.AssertAllowed(path); err != nil {
+		return nil, "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if info.IsDir() {
+		return nil, "", errors.New("path is a directory")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", err
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return data, contentType, nil
+}
+
+func (d *Domain) SetOpenLauncher(fn func(string) error) {
+	if fn == nil {
+		fn = defaultOpenLauncher
+	}
+	d.openLauncher = fn
+}
+
+func (d *Domain) OpenFileExternally(path string) (model.ActionResponse, ResponseCommon) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || path == "" {
+		return model.ActionResponse{}, ResponseCommon{StatusCode: http.StatusBadRequest, Error: "path is required"}
+	}
+	if err := d.AssertAllowed(path); err != nil {
+		return model.ActionResponse{}, ResponseCommon{StatusCode: http.StatusBadRequest, Error: err.Error()}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return model.ActionResponse{}, ResponseCommon{StatusCode: http.StatusBadRequest, Error: err.Error()}
+	}
+	if d.openLauncher == nil {
+		d.openLauncher = defaultOpenLauncher
+	}
+	if err := d.openLauncher(path); err != nil {
+		return model.ActionResponse{}, ResponseCommon{StatusCode: http.StatusInternalServerError, Error: err.Error()}
+	}
+	msg := "opened " + path
+	if info.IsDir() {
+		msg = "opened directory " + path
+	}
+	return model.ActionResponse{OK: true, Message: msg}, ResponseCommon{}
+}
+
+func defaultOpenLauncher(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", path).Start()
+	default:
+		if err := exec.Command("xdg-open", path).Start(); err == nil {
+			return nil
+		}
+		return exec.Command("gio", "open", path).Start()
+	}
+}
+
+func isLocalNoPassword(req RequestCommon) bool {
+	host := strings.ToLower(strings.TrimSpace(req.Host))
+	ip := strings.TrimSpace(req.IpAddress)
+	if host == "" && ip == "" {
+		return true
+	}
+	return strings.Contains(host, "localhost") ||
+		strings.Contains(host, "127.0.0.1") ||
+		strings.Contains(host, "[::1]") ||
+		ip == "127.0.0.1" ||
+		ip == "::1" ||
+		ip == "[::1]"
+}
+
+func (d *Domain) QueueCategorizeFromRequest(req RequestCommon, password, srcPath string, opts CategorizeOptions) (model.ActionResponse, error) {
+	if !(isLocalNoPassword(req) && strings.TrimSpace(password) == "") {
+		if err := d.RequirePassword(password); err != nil {
+			return model.ActionResponse{}, err
+		}
+	}
+	srcPath = filepath.Clean(srcPath)
+	if err := d.AssertAllowed(srcPath); err != nil {
+		return model.ActionResponse{}, err
+	}
+	task := &ManageTask{
+		ID:              d.newManageID(),
+		Action:          "categorize",
+		Status:          "queued",
+		SrcPath:         srcPath,
+		VideosOnly:      opts.VideosOnly,
+		WatchedCount:    opts.WatchedCount,
+		RemoveEmptyDirs: opts.RemoveEmptyDirs,
+		CreatedAt:       time.Now().UTC(),
+	}
+	d.enqueueManageTask(task)
+	return model.ActionResponse{OK: true, Message: "queued categorize " + task.ID}, nil
+}
+
+func (d *Domain) QueueMoveFromRequest(req RequestCommon, password, srcPath, dstDir string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		srcPath = filepath.Clean(srcPath)
+		dstDir = filepath.Clean(dstDir)
+		if err := d.AssertAllowed(srcPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.AssertAllowed(dstDir); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.ValidateSortedMove(srcPath, dstDir); err != nil {
+			return model.ActionResponse{}, err
+		}
+		task := &ManageTask{
+			ID:        d.newManageID(),
+			Action:    "move",
+			Status:    "queued",
+			SrcPath:   srcPath,
+			DstDir:    dstDir,
+			DstPath:   filepath.Join(dstDir, filepath.Base(srcPath)),
+			CreatedAt: time.Now().UTC(),
+		}
+		d.enqueueManageTask(task)
+		return model.ActionResponse{OK: true, Message: "queued move " + task.ID}, nil
+	}
+	return d.QueueMove(password, srcPath, dstDir)
+}
+
+func (d *Domain) QueueRenameFromRequest(req RequestCommon, password, srcPath, newPath string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		srcPath = filepath.Clean(srcPath)
+		newPath = filepath.Clean(newPath)
+		if err := d.AssertAllowed(srcPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.AssertAllowed(filepath.Dir(newPath)); err != nil {
+			return model.ActionResponse{}, err
+		}
+		task := &ManageTask{
+			ID:        d.newManageID(),
+			Action:    "rename",
+			Status:    "queued",
+			SrcPath:   srcPath,
+			DstPath:   newPath,
+			CreatedAt: time.Now().UTC(),
+		}
+		d.enqueueManageTask(task)
+		return model.ActionResponse{OK: true, Message: "queued rename " + task.ID}, nil
+	}
+	return d.QueueRename(password, srcPath, newPath)
+}
+
+func (d *Domain) QueueDeleteFromRequest(req RequestCommon, password, srcPath string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		srcPath = filepath.Clean(srcPath)
+		if err := d.AssertAllowed(srcPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		task := &ManageTask{
+			ID:        d.newManageID(),
+			Action:    "delete",
+			Status:    "queued",
+			SrcPath:   srcPath,
+			CreatedAt: time.Now().UTC(),
+		}
+		d.enqueueManageTask(task)
+		return model.ActionResponse{OK: true, Message: "queued delete " + task.ID}, nil
+	}
+	return d.QueueDelete(password, srcPath)
+}
+
+func (d *Domain) MoveNowFromRequest(req RequestCommon, password, srcPath, dstDir, confirm string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		srcPath = filepath.Clean(srcPath)
+		dstDir = filepath.Clean(dstDir)
+		if err := d.AssertAllowed(srcPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.AssertAllowed(dstDir); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.ValidateSortedMove(srcPath, dstDir); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if strings.TrimSpace(confirm) != "CONFIRM" {
+			return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+		}
+		dstPath := filepath.Join(dstDir, filepath.Base(srcPath))
+		if err := d.doMove(srcPath, dstDir, dstPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		return model.ActionResponse{OK: true, Message: "moved to " + dstPath}, nil
+	}
+	return d.MoveNow(password, srcPath, dstDir, confirm)
+}
+
+func (d *Domain) RenameNowFromRequest(req RequestCommon, password, oldPath, newPath, confirm string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		oldPath = filepath.Clean(oldPath)
+		newPath = filepath.Clean(newPath)
+		if err := d.AssertAllowed(oldPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if err := d.AssertAllowed(filepath.Dir(newPath)); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if strings.TrimSpace(confirm) != "CONFIRM" {
+			return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+		}
+		if err := d.doRename(oldPath, newPath); err != nil {
+			return model.ActionResponse{}, err
+		}
+		return model.ActionResponse{OK: true, Message: "renamed to " + newPath}, nil
+	}
+	return d.RenameNow(password, oldPath, newPath, confirm)
+}
+
+func (d *Domain) DeleteNowFromRequest(req RequestCommon, password, path, confirm string) (model.ActionResponse, error) {
+	if isLocalNoPassword(req) && strings.TrimSpace(password) == "" {
+		path = filepath.Clean(path)
+		if err := d.AssertAllowed(path); err != nil {
+			return model.ActionResponse{}, err
+		}
+		if strings.TrimSpace(confirm) != "CONFIRM" {
+			return model.ActionResponse{}, errors.New("confirm must be CONFIRM")
+		}
+		if err := d.doDelete(path); err != nil {
+			return model.ActionResponse{}, err
+		}
+		return model.ActionResponse{OK: true, Message: "deleted " + path}, nil
+	}
+	return d.DeleteNow(password, path, confirm)
 }
 
 func (d *Domain) doDelete(path string) error {
@@ -870,19 +1133,19 @@ func (d *Domain) runManageTask(task *ManageTask, mountHints map[string][]string)
 		}
 	}
 	_ = d.Store.InsertManageHistory(model.ManageHistoryEntry{
-		ID:         task.ID,
-		Action:     task.Action,
-		Status:     task.Status,
-		SrcPath:    task.SrcPath,
-		DstPath:    task.DstPath,
-		DstDir:     task.DstDir,
-		VideosOnly: task.VideosOnly,
-		WatchedCount: task.WatchedCount,
+		ID:              task.ID,
+		Action:          task.Action,
+		Status:          task.Status,
+		SrcPath:         task.SrcPath,
+		DstPath:         task.DstPath,
+		DstDir:          task.DstDir,
+		VideosOnly:      task.VideosOnly,
+		WatchedCount:    task.WatchedCount,
 		RemoveEmptyDirs: task.RemoveEmptyDirs,
-		Message:    task.Message,
-		CreatedAt:  task.CreatedAt.UTC().Format(manageHistoryTimeLayout),
-		StartedAt:  task.StartedAt.UTC().Format(manageHistoryTimeLayout),
-		FinishedAt: task.FinishedAt.UTC().Format(manageHistoryTimeLayout),
+		Message:         task.Message,
+		CreatedAt:       task.CreatedAt.UTC().Format(manageHistoryTimeLayout),
+		StartedAt:       task.StartedAt.UTC().Format(manageHistoryTimeLayout),
+		FinishedAt:      task.FinishedAt.UTC().Format(manageHistoryTimeLayout),
 	})
 	d.manageMu.Lock()
 	delete(d.manageRunning, task.ID)

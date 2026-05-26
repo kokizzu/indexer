@@ -173,10 +173,14 @@
     button.secondary {
       background: linear-gradient(135deg, var(--accent-2), #4d63ba);
     }
-    button.ghost {
+    button.ghost, a.ghost {
       background: rgba(255,255,255,0.05);
       border: 1px solid var(--line);
       color: var(--ink);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
     }
     button.warn {
       background: linear-gradient(135deg, var(--warn), #b73d3d);
@@ -379,6 +383,11 @@
       line-height: 1;
       font-size: 12px;
     }
+    .typeCell {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
     .tooltipish { text-decoration: underline dotted; text-underline-offset: 2px; }
     .fdFile { color: #7ad7ff; }
     .fdDir { color: #d8a8ff; }
@@ -399,13 +408,20 @@
       width: min(360px, calc(100vw - 36px));
     }
     .toast {
-      background: rgba(140, 32, 32, 0.96);
-      color: #fff3f3;
-      border: 1px solid rgba(255,255,255,0.12);
       border-radius: 14px;
       padding: 12px 14px;
       box-shadow: var(--shadow);
       font-size: 13px;
+    }
+    .toast.toastSuccess {
+      background: linear-gradient(135deg, rgba(82,199,184,0.96), rgba(77,99,186,0.96));
+      color: #f3fbff;
+      border: 1px solid rgba(255,255,255,0.16);
+    }
+    .toast.toastError {
+      background: linear-gradient(135deg, rgba(226, 107, 107, 0.96), rgba(183, 61, 61, 0.96));
+      color: #fff3f3;
+      border: 1px solid rgba(255,255,255,0.12);
     }
     .split {
       display: grid;

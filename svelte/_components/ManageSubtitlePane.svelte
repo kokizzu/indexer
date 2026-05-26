@@ -33,6 +33,11 @@
       showToast('Copy failed: ' + err);
     }
   }
+
+  function rootLabel(root) {
+    if (!root) return '';
+    return root.base && root.base !== root.path ? `${root.base} · ${root.path}` : (root.path || '');
+  }
 </script>
 
 <div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)">
@@ -46,7 +51,7 @@
   <label for="manageSubtitleRoot">Scan Root</label>
   <select id="manageSubtitleRoot" value={$manageFormState.subtitleRoot} onchange={(event) => requestManageFormPatch({ subtitleRoot: event.currentTarget.value })}>
     {#each $browseBridgeState.roots as root}
-      <option value={root}>{root}</option>
+      <option value={root.path}>{rootLabel(root)}</option>
     {/each}
   </select>
 </div>

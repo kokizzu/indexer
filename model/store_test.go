@@ -135,6 +135,69 @@ func TestMarshalEntryForClickHouseUsesClickHouseTimeFormat(t *testing.T) {
 	}
 }
 
+func TestRenameEntriesRewritesPaths(t *testing.T) {
+	var insertBody string
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			raw, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql := string(raw)
+			switch {
+			case strings.HasPrefix(sql, "SELECT path, dir, base, ext, root, rootKind, is_dir, size, subtree_size, subtree_files, subtree_dirs, toString(modified_at) AS modifiedAt, fingerprint, content FROM entries FORMAT JSONEachRow"):
+				body := strings.Join([]string{
+					`{"path":"/root/old","dir":"/root","base":"old","ext":"","root":"/root","rootKind":"unsorted","is_dir":1,"size":0,"subtree_size":10,"subtree_files":1,"subtree_dirs":1,"modifiedAt":"2026-05-20 12:34:56.789","fingerprint":"","content":"old"}`,
+					`{"path":"/root/old/movie.mkv","dir":"/root/old","base":"movie.mkv","ext":".mkv","root":"/root","rootKind":"unsorted","is_dir":0,"size":10,"subtree_size":0,"subtree_files":0,"subtree_dirs":0,"modifiedAt":"2026-05-20 12:34:56.789","fingerprint":"fp","content":"movie"}`,
+					"",
+				}, "\n")
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Request:    req,
+				}, nil
+			case strings.HasPrefix(sql, "TRUNCATE TABLE entries"):
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}, nil
+			case strings.HasPrefix(sql, "INSERT INTO entries FORMAT JSONEachRow"):
+				insertBody = sql
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}, nil
+			default:
+				t.Fatalf("unexpected sql: %s", sql)
+			}
+			return nil, nil
+		}),
+	}
+	store := NewStore(conf.Config{
+		ClickHouseURL:  "http://127.0.0.1:8127",
+		ClickHouseDB:   "indexer",
+		ClickHouseUser: "userC",
+		ClickHousePass: "passC",
+	}, client)
+	if err := store.RenameEntries("/root/old", "/root/new"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(insertBody, `"/root/new"`) || !strings.Contains(insertBody, `"/root/new/movie.mkv"`) {
+		t.Fatalf("expected renamed paths in insert body, got %s", insertBody)
+	}
+	if !strings.Contains(insertBody, `"dir":"/root/new"`) || !strings.Contains(insertBody, `"dir":"/root"`) {
+		t.Fatalf("expected updated dirs in insert body, got %s", insertBody)
+	}
+}
+
 func TestSearchPageOrdersByBasenameRelevanceBeforeModifiedTime(t *testing.T) {
 	var seen []string
 	client := &http.Client{

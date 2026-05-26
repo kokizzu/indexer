@@ -4,6 +4,7 @@ export const IndexerApi = {
   status: '/api/status',
   reindex: '/api/reindex',
   browse: '/api/browse',
+  open: '/api/open',
   duplicates: '/api/duplicates',
   search: '/api/search',
   suggest: '/api/suggest',
@@ -21,3 +22,7 @@ export const IndexerApi = {
 };
 
 export default IndexerApi;
+
+;(function (global) {
+  global.IndexerApi = IndexerApi;
+})(typeof window !== 'undefined' ? window : globalThis);

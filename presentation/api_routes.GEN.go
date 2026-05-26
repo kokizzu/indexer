@@ -12,6 +12,7 @@ func ApiRoutes(app *fiber.App, d *domain.Domain) {
 	app.Get("/api/"+domain.StatusAction, statusHandler(d))
 	app.Post("/api/"+domain.ReindexAction, reindexHandler(d))
 	app.Get("/api/"+domain.BrowseAction, browseHandler(d))
+	app.Get("/api/"+domain.OpenAction, openHandler(d))
 	app.Get("/api/"+domain.DuplicatesAction, duplicatesHandler(d))
 	app.Get("/api/"+domain.SearchAction, searchHandler(d))
 	app.Post("/api/"+domain.SuggestAction, suggestHandler(d))

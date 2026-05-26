@@ -1,6 +1,8 @@
 package presentation
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 
 	"indexer/domain"
@@ -9,10 +11,12 @@ import (
 func searchHandler(d *domain.Domain) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		in := searchIn{}
-		return execParsed(c, &in.RequestCommon, &in, domain.SearchAction, func() (any, *domain.ResponseCommon) {
-			out := execSearch(&in, d)
-			return out, &out.ResponseCommon
-		}, false)
+		if err := webApiParseInput(c, &in.RequestCommon, &in, domain.SearchAction); err != nil {
+			return nil
+		}
+		in.Kind = strings.TrimSpace(c.Query("kind", in.Kind))
+		out := execSearch(&in, d)
+		return in.RequestCommon.ToFiberCtx(c, out, &out.ResponseCommon, &in)
 	}
 }
 

@@ -6082,24 +6082,6 @@ ${component_stack}
       }
     });
   }
-  function bind_checked(input, get3, set2 = get3) {
-    listen_to_event_and_reset_event(input, "change", (is_reset) => {
-      var value = is_reset ? input.defaultChecked : input.checked;
-      set2(value);
-    });
-    if (
-      // If we are hydrating and the value has since changed,
-      // then use the update value from the input instead.
-      hydrating && input.defaultChecked !== input.checked || // If defaultChecked is set, then checked == defaultChecked
-      untrack(get3) == null
-    ) {
-      set2(input.checked);
-    }
-    render_effect(() => {
-      var value = get3();
-      input.checked = Boolean(value);
-    });
-  }
   function is_numberlike_input(input) {
     var type = input.type;
     return type === "number" || type === "range";
@@ -6888,6 +6870,7 @@ ${component_stack}
     status: "/api/status",
     reindex: "/api/reindex",
     browse: "/api/browse",
+    open: "/api/open",
     duplicates: "/api/duplicates",
     search: "/api/search",
     suggest: "/api/suggest",
@@ -6904,6 +6887,9 @@ ${component_stack}
     manageHistory: "/api/manage/history"
   };
   var jsApi_GEN_default = IndexerApi;
+  (function(global) {
+    global.IndexerApi = IndexerApi;
+  })(typeof window !== "undefined" ? window : globalThis);
 
   // _helpers/xNotifier.js
   function showToast(message, doc2 = document) {
@@ -6911,7 +6897,13 @@ ${component_stack}
     if (!wrap) return;
     const el = doc2.createElement("div");
     el.className = "toast";
-    el.textContent = String(message);
+    const text2 = String(message);
+    if (/(\binvalid\b|\berror\b|\bfailed\b|\bfail\b|\bpassword\b|\brequired\b|\boutside\b|\bunsupported\b|\bcannot\b|\bmissing\b)/i.test(text2)) {
+      el.classList.add("toastError");
+    } else {
+      el.classList.add("toastSuccess");
+    }
+    el.textContent = text2;
     wrap.appendChild(el);
     setTimeout(() => {
       el.remove();
@@ -6974,11 +6966,12 @@ ${component_stack}
   var root_8 = from_html(`<tr><td colspan="5" class="empty"> </td></tr>`);
   var root_9 = from_html(`<tr><td colspan="5" class="empty">Loading directory...</td></tr>`);
   var root_10 = from_html(`<tr><td colspan="5" class="empty">Empty directory</td></tr>`);
-  var root_13 = from_html(`<button class="ghost iconBtn" title="Open directory">\u2197</button>`);
-  var root_14 = from_html(`<span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span>`, 1);
-  var root_15 = from_html(`<span class="fdFile">1 F</span>`);
-  var root_12 = from_html(`<tr><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><!> <button class="ghost iconBtn">\u29C9</button></span></div></td><td><span> </span></td><td><!></td><td></td><td class="mono"></td></tr>`);
-  var root_16 = from_html(`<section id="tab-browse"><div class="workspace"><div class="treePane"><div class="treeHeader"><h2>Roots</h2> <div class="row" style="margin:0"><button class="ghost">Reload</button></div></div> <div class="treeScroll"><!></div></div> <div class="resultPane"><div class="resultHeader"><div><h2>Directory Listing</h2> <div class="mono" style="color:var(--muted); margin-top:4px"> </div></div> <div class="row" style="margin:0"><button class="ghost">Back</button> <button class="ghost">Forward</button> <button class="ghost">Up</button> <input placeholder="Filter by name" style="max-width:180px"/> <button class="ghost"> </button></div></div> <div class="resultScroll"><table style="table-layout:fixed"><thead><tr></tr></thead><tbody><!></tbody></table></div></div></div></section>`);
+  var root_13 = from_html(`<button class="ghost iconBtn" title="Open file externally">\u2934</button>`);
+  var root_14 = from_html(`<button class="ghost iconBtn" title="Open directory">\u2197</button>`);
+  var root_15 = from_html(`<span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span>`, 1);
+  var root_16 = from_html(`<span class="fdFile">1 F</span>`);
+  var root_12 = from_html(`<tr><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><button class="ghost iconBtn">\u29C9</button> <!> <button class="ghost iconBtn" title="Rename">\u270E</button></span></div></td><td><span class="typeCell"><span> </span> <!></span></td><td><!></td><td></td><td class="mono"></td></tr>`);
+  var root_17 = from_html(`<section id="tab-browse"><div class="workspace"><div class="treePane"><div class="treeHeader"><h2>Roots</h2> <div class="row" style="margin:0"><button class="ghost">Reload</button></div></div> <div class="treeScroll"><!></div></div> <div class="resultPane"><div class="resultHeader"><div><h2>Directory Listing</h2> <div class="mono" style="color:var(--muted); margin-top:4px"> </div></div> <div class="row" style="margin:0"><button class="ghost">Back</button> <button class="ghost">Forward</button> <button class="ghost">Up</button> <input placeholder="Filter by name" style="max-width:180px"/> <button class="ghost"> </button></div></div> <div class="resultScroll"><table style="table-layout:fixed"><thead><tr></tr></thead><tbody><!></tbody></table></div></div></div></section>`);
   function BrowseTabPane($$anchor, $$props) {
     push($$props, false);
     const $activeTab = () => store_get(activeTab, "$activeTab", $$stores);
@@ -7060,8 +7053,12 @@ ${component_stack}
     function browseTarget2(path, isDir) {
       return Number(isDir) === 1 || isDir === true ? path : parentDir2(path);
     }
-    async function getJSON(url) {
-      const res = await fetch(url);
+    function needsPasswordPrompt() {
+      const host = String(window.location.hostname || "").trim().toLowerCase();
+      return !(host === "localhost" || host === "127.0.0.1" || host === "::1");
+    }
+    async function getJSON(url, options = {}) {
+      const res = await fetch(url, options);
       const text2 = await res.text();
       if (!res.ok) throw new Error(text2 || "HTTP " + res.status);
       return text2 ? JSON.parse(text2) : {};
@@ -7189,6 +7186,48 @@ ${component_stack}
         toast("Copy failed: " + err);
       }
     }
+    async function openExternal(path, event2) {
+      if (event2) {
+        event2.preventDefault();
+        event2.stopPropagation();
+      }
+      try {
+        const url = new URL(apiUrl("open", "/api/open"), window.location.origin);
+        url.searchParams.set("path", path || "");
+        const res = await getJSON(url.toString());
+        toast(res?.message || "Opened file");
+      } catch (err) {
+        toast("Open failed: " + err);
+      }
+    }
+    async function renameFromBrowse(path) {
+      const oldPath = String(path || "").trim();
+      if (!oldPath) {
+        toast("Rename path is required");
+        return;
+      }
+      const nextPath = window.prompt("Rename to path", oldPath);
+      if (!nextPath) return;
+      let password = "";
+      if (needsPasswordPrompt()) {
+        password = window.prompt("Manage password?") || "";
+        if (!password) {
+          toast("Password is required");
+          return;
+        }
+      }
+      try {
+        const res = await getJSON(apiUrl("rename", "/api/rename"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password, oldPath, newPath: nextPath, confirm: "CONFIRM" })
+        });
+        toast(res?.message || "Renamed");
+        await selectPath(get2(selectedPath) || parentDir2(oldPath), { pushHistory: false });
+      } catch (err) {
+        toast(String(err?.message || err));
+      }
+    }
     async function showInBrowse(path, isDir, event2) {
       if (event2) {
         event2.preventDefault();
@@ -7248,7 +7287,7 @@ ${component_stack}
     });
     legacy_pre_effect_reset();
     init();
-    var section = root_16();
+    var section = root_17();
     let classes;
     var div = child(section);
     var div_1 = child(div);
@@ -7385,37 +7424,51 @@ ${component_stack}
           var text_6 = child(span, true);
           reset(span);
           var span_1 = sibling(span, 2);
-          var node_4 = child(span_1);
+          var button_5 = child(span_1);
+          var node_4 = sibling(button_5, 2);
           {
             var consequent_6 = ($$anchor4) => {
-              var button_5 = root_13();
-              delegated("click", button_5, () => selectPath(get2(item).path || ""));
-              append($$anchor4, button_5);
+              var button_6 = root_13();
+              delegated("click", button_6, (event2) => openExternal(get2(item).path || "", event2));
+              append($$anchor4, button_6);
             };
             if_block(node_4, ($$render) => {
-              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_6);
+              if (get2(item), untrack(() => get2(item).isDir === false)) $$render(consequent_6);
             });
           }
-          var button_6 = sibling(node_4, 2);
+          var button_7 = sibling(node_4, 2);
           reset(span_1);
           reset(div_14);
           reset(td_1);
           var td_2 = sibling(td_1);
           var span_2 = child(td_2);
-          var text_7 = child(span_2, true);
+          var span_3 = child(span_2);
+          var text_7 = child(span_3, true);
+          reset(span_3);
+          var node_5 = sibling(span_3, 2);
+          {
+            var consequent_7 = ($$anchor4) => {
+              var button_8 = root_14();
+              delegated("click", button_8, () => selectPath(get2(item).path || ""));
+              append($$anchor4, button_8);
+            };
+            if_block(node_5, ($$render) => {
+              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_7);
+            });
+          }
           reset(span_2);
           reset(td_2);
           var td_3 = sibling(td_2);
-          var node_5 = child(td_3);
+          var node_6 = child(td_3);
           {
-            var consequent_7 = ($$anchor4) => {
-              var fragment_3 = root_14();
-              var span_3 = first_child(fragment_3);
-              var text_8 = child(span_3);
-              reset(span_3);
-              var span_4 = sibling(span_3, 2);
-              var text_9 = child(span_4);
+            var consequent_8 = ($$anchor4) => {
+              var fragment_3 = root_15();
+              var span_4 = first_child(fragment_3);
+              var text_8 = child(span_4);
               reset(span_4);
+              var span_5 = sibling(span_4, 2);
+              var text_9 = child(span_5);
+              reset(span_5);
               template_effect(() => {
                 set_text(text_8, `${(get2(item), untrack(() => get2(item).fileCount || 0)) ?? ""} F`);
                 set_text(text_9, `${(get2(item), untrack(() => get2(item).dirCount || 0)) ?? ""} D`);
@@ -7423,11 +7476,11 @@ ${component_stack}
               append($$anchor4, fragment_3);
             };
             var alternate_1 = ($$anchor4) => {
-              var span_5 = root_15();
-              append($$anchor4, span_5);
+              var span_6 = root_16();
+              append($$anchor4, span_6);
             };
-            if_block(node_5, ($$render) => {
-              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_7);
+            if_block(node_6, ($$render) => {
+              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_8);
               else $$render(alternate_1, -1);
             });
           }
@@ -7442,7 +7495,7 @@ ${component_stack}
           var td_5 = sibling(td_4);
           html(
             td_5,
-            () => (deep_read_state(formatAgeByMode), get2(item), untrack(() => formatAgeByMode(get2(item).modifiedAt || ""))),
+            () => (deep_read_state(formatAgeByMode), get2(item), get2(relativeTime), untrack(() => formatAgeByMode(get2(item).modifiedAt || "", get2(relativeTime)))),
             true
           );
           reset(td_5);
@@ -7450,12 +7503,13 @@ ${component_stack}
           template_effect(() => {
             set_attribute2(span, "title", (get2(item), untrack(() => get2(item).path || "")));
             set_text(text_6, (get2(item), untrack(() => get2(item).base || "")));
-            set_attribute2(button_6, "title", (get2(item), untrack(() => get2(item).path || "")));
-            set_class(span_2, 1, (get2(item), untrack(() => `pill ${get2(item).isDir ? "pillDir" : "pillFile"}`)));
+            set_attribute2(button_5, "title", (get2(item), untrack(() => get2(item).path || "")));
+            set_class(span_3, 1, (get2(item), untrack(() => `pill ${get2(item).isDir ? "pillDir" : "pillFile"}`)));
             set_text(text_7, (get2(item), untrack(() => get2(item).isDir ? "DIR" : "FILE")));
           });
           delegated("dblclick", tr_4, () => get2(item).isDir && selectPath(get2(item).path || ""));
-          delegated("click", button_6, (event2) => copyPath(get2(item).path || "", event2));
+          delegated("click", button_5, (event2) => copyPath(get2(item).path || "", event2));
+          delegated("click", button_7, () => renameFromBrowse(get2(item).path || ""));
           append($$anchor3, tr_4);
         });
         append($$anchor2, fragment_2);
@@ -7663,7 +7717,7 @@ ${component_stack}
   var root_62 = from_html(`<div class="empty">No mounted root progress yet</div>`);
   var root_92 = from_html(`<div class="rootCard"><div><span class="pill"> </span> </div> <div class="mono" style="color:var(--muted); margin-top:3px"><!> / <!></div> <div class="progressBar" style="margin-top:4px"><div class="progressFill"></div></div></div>`);
   var root_82 = from_html(`<div class="mountCard"><div><strong> </strong> <span class="mono"> </span></div> <div class="progressBar" style="margin:6px 0 8px"><div class="progressFill"></div></div> <!></div>`);
-  var root_17 = from_html(`<section id="tab-indexer"><section class="hero"><div class="card"><div class="cardInner"><h1>Indexer</h1> <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p> <div class="row" style="margin-top:14px"><button> </button> <select multiple="" size="5" style="min-width:340px"></select></div> <div class="progressWrap"><div class="progressBar"><div class="progressFill"></div></div> <div class="progressMeta"> </div></div> <div class="heroMeta"><div class="metric"><div class="metricLabel">Workers</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Roots</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Files / Dirs</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Indexed Size</div><div class="metricValue"></div></div></div></div></div> <div class="card"><div class="cardInner"><h2>Status</h2> <div class="statusBox"><!></div></div></div></section> <div class="card"><div class="cardInner"><h2>Per Root Progress</h2> <div class="progressGrid"><!></div></div></div></section>`);
+  var root_18 = from_html(`<section id="tab-indexer"><section class="hero"><div class="card"><div class="cardInner"><h1>Indexer</h1> <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p> <div class="row" style="margin-top:14px"><button> </button> <select multiple="" size="5" style="min-width:340px"></select></div> <div class="progressWrap"><div class="progressBar"><div class="progressFill"></div></div> <div class="progressMeta"> </div></div> <div class="heroMeta"><div class="metric"><div class="metricLabel">Workers</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Roots</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Files / Dirs</div><div class="metricValue"> </div></div> <div class="metric"><div class="metricLabel">Indexed Size</div><div class="metricValue"></div></div></div></div></div> <div class="card"><div class="cardInner"><h2>Status</h2> <div class="statusBox"><!></div></div></div></section> <div class="card"><div class="cardInner"><h2>Per Root Progress</h2> <div class="progressGrid"><!></div></div></div></section>`);
   function IndexerTabPane($$anchor, $$props) {
     push($$props, false);
     const $activeTab = () => store_get(activeTab, "$activeTab", $$stores);
@@ -7756,7 +7810,7 @@ ${component_stack}
       if (pollTimer) window.clearInterval(pollTimer);
     });
     init();
-    var section = root_17();
+    var section = root_18();
     let classes;
     var section_1 = child(section);
     var div = child(section_1);
@@ -8055,7 +8109,7 @@ ${component_stack}
   var root_34 = from_html(`<tr><td colspan="6" class="empty"> </td></tr>`);
   var root_63 = from_html(`<button class="ghost"> </button>`);
   var root_52 = from_html(`<tr><td><input type="checkbox"/></td><td class="mono"><span class="cellEllipsis"> </span></td><td><span> </span></td><td class="mono"><span class="cellEllipsis"> </span></td><td><span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span></td><td><div class="row" style="margin:0"><button>Preview</button> <!> <button class="ghost iconBtn" title="Show in Browse">\u2197</button></div></td></tr>`);
-  var root_18 = from_html(`<div class="resultPane" style="margin-bottom:16px"><div class="resultHeader"><h2 id="manageScanTitle"> </h2> <div id="manageScanCount" class="mono" style="color:var(--muted)"> </div></div> <div class="field"><label for="manageScanRoot">Scan Root</label> <select id="manageScanRoot"></select></div> <div class="field"><label for="manageScanPath">Optional Subdirectory</label> <input id="manageScanPath" placeholder="Leave empty to scan the whole selected root"/></div> <div class="row" style="margin-top:14px"><button id="manageScanBtn" class="secondary"> </button> <button class="ghost">Use Current Browse Path</button></div> <div id="manageBatchActions" class="row" style="margin-top:12px"><div class="mono" style="color:var(--muted); align-self:center"> </div> <button> </button></div> <div class="resultScroll" style="max-height:320px; margin-top:14px"><table style="table-layout:fixed"><thead><tr><th style="width:5%"><input id="manageSelectAll" type="checkbox"/></th><th id="manageScanHeadCurrent" style="width:25%">Current</th><th id="manageScanHeadStatus" style="width:15%"> </th><th id="manageScanHeadSuggested" style="width:23%"> </th><th id="manageScanHeadContents" style="width:12%">Contents</th><th id="manageScanHeadAction" style="width:20%">Action</th></tr></thead><tbody id="manageScanTable"><!></tbody></table></div></div>`);
+  var root_19 = from_html(`<div class="resultPane" style="margin-bottom:16px"><div class="resultHeader"><h2 id="manageScanTitle"> </h2> <div id="manageScanCount" class="mono" style="color:var(--muted)"> </div></div> <div class="field"><label for="manageScanRoot">Scan Root</label> <select id="manageScanRoot"></select></div> <div class="field"><label for="manageScanPath">Optional Subdirectory</label> <input id="manageScanPath" placeholder="Leave empty to scan the whole selected root"/></div> <div class="row" style="margin-top:14px"><button id="manageScanBtn" class="secondary"> </button> <button class="ghost">Use Current Browse Path</button></div> <div id="manageBatchActions" class="row" style="margin-top:12px"><div class="mono" style="color:var(--muted); align-self:center"> </div> <button> </button></div> <div class="resultScroll" style="max-height:320px; margin-top:14px"><table style="table-layout:fixed"><thead><tr><th style="width:5%"><input id="manageSelectAll" type="checkbox"/></th><th id="manageScanHeadCurrent" style="width:25%">Current</th><th id="manageScanHeadStatus" style="width:15%"> </th><th id="manageScanHeadSuggested" style="width:23%"> </th><th id="manageScanHeadContents" style="width:12%">Contents</th><th id="manageScanHeadAction" style="width:20%">Action</th></tr></thead><tbody id="manageScanTable"><!></tbody></table></div></div>`);
   function ManageCommonPane($$anchor, $$props) {
     push($$props, false);
     const $manageWorkflowState = () => store_get(manageWorkflowState, "$manageWorkflowState", $$stores);
@@ -8107,6 +8161,10 @@ ${component_stack}
     function statusLabel(tab, item) {
       return item?.statusLabel || (tab === "delete" ? "TARGET" : "");
     }
+    function rootLabel(root14) {
+      if (!root14) return "";
+      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    }
     function showInBrowse(path, isDir, event2) {
       if (event2) {
         event2.preventDefault();
@@ -8115,7 +8173,7 @@ ${component_stack}
       requestManageAction("showInBrowse", { path, isDir });
     }
     init();
-    var div = root_18();
+    var div = root_19();
     var div_1 = child(div);
     var h2 = child(div_1);
     var text2 = child(h2, true);
@@ -8131,12 +8189,15 @@ ${component_stack}
       var text_2 = child(option, true);
       reset(option);
       var option_value = {};
-      template_effect(() => {
-        set_text(text_2, get2(root14));
-        if (option_value !== (option_value = get2(root14))) {
-          option.value = (option.__value = get2(root14)) ?? "";
-        }
-      });
+      template_effect(
+        ($0) => {
+          set_text(text_2, $0);
+          if (option_value !== (option_value = get2(root14).path)) {
+            option.value = (option.__value = get2(root14).path) ?? "";
+          }
+        },
+        [() => rootLabel(get2(root14))]
+      );
       append($$anchor2, option);
     });
     reset(select);
@@ -8328,7 +8389,7 @@ ${component_stack}
 
   // _components/ManageMovePane.svelte
   var root_25 = from_html(`<option> </option>`);
-  var root_19 = from_html(`<div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)"><div class="previewLabel">Steps</div> <div>1. Scan only move-ready folders that already match the final <span class="mono">[...,of_wN]</span> form.</div> <div>2. Choose destination root and optional bucket.</div> <div>3. Preview one candidate, then queue it.</div> <div>Example: move <span class="mono">Show Name S01 [12of_w0]</span> into sorted root bucket <span class="mono">_w</span>.</div></div> <div class="field"><label for="manageDstRoot">Destination Root</label> <select id="manageDstRoot"></select></div> <div class="field"><label for="manageDstSubdir">Destination Subdirectory</label> <input id="manageDstSubdir" placeholder="_ws or optional relative folder inside selected root"/></div>`, 1);
+  var root_110 = from_html(`<div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)"><div class="previewLabel">Steps</div> <div>1. Scan only move-ready folders that already match the final <span class="mono">[...,of_wN]</span> form.</div> <div>2. Choose destination root and optional bucket.</div> <div>3. Preview one candidate, then queue it.</div> <div>Example: move <span class="mono">Show Name S01 [12of_w0]</span> into sorted root bucket <span class="mono">_w</span>.</div></div> <div class="field"><label for="manageDstRoot">Destination Root</label> <select id="manageDstRoot"></select></div> <div class="field"><label for="manageDstSubdir">Destination Subdirectory</label> <input id="manageDstSubdir" placeholder="_ws or optional relative folder inside selected root"/></div>`, 1);
   function ManageMovePane($$anchor, $$props) {
     push($$props, false);
     const $manageFormState = () => store_get(manageFormState, "$manageFormState", $$stores);
@@ -8346,8 +8407,12 @@ ${component_stack}
         cleanupBrowse();
       };
     });
+    function rootLabel(root14) {
+      if (!root14) return "";
+      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    }
     init();
-    var fragment = root_19();
+    var fragment = root_110();
     var div = sibling(first_child(fragment), 2);
     var select = sibling(child(div), 2);
     each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root14) => {
@@ -8355,12 +8420,15 @@ ${component_stack}
       var text2 = child(option, true);
       reset(option);
       var option_value = {};
-      template_effect(() => {
-        set_text(text2, get2(root14));
-        if (option_value !== (option_value = get2(root14))) {
-          option.value = (option.__value = get2(root14)) ?? "";
-        }
-      });
+      template_effect(
+        ($0) => {
+          set_text(text2, $0);
+          if (option_value !== (option_value = get2(root14).path)) {
+            option.value = (option.__value = get2(root14).path) ?? "";
+          }
+        },
+        [() => rootLabel(get2(root14))]
+      );
       append($$anchor2, option);
     });
     reset(select);
@@ -8484,7 +8552,7 @@ ${component_stack}
   var root_26 = from_html(`<option> </option>`);
   var root_35 = from_html(`<tr><td colspan="3" class="empty">No subtitle rename candidates</td></tr>`);
   var root_53 = from_html(`<tr><td class="mono"><span class="cellEllipsis"> </span></td><td class="mono"><span class="cellEllipsis"> </span></td><td><div class="row" style="margin:0"><button class="ghost iconBtn">\u29C9</button><button>Rename</button></div></td></tr>`);
-  var root_110 = from_html(`<div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)"><div class="previewLabel">Steps</div> <div>1. Choose the root to scan for subtitle fixes.</div> <div>2. Optionally narrow the subtitle scan path.</div> <div>3. Scan subtitle renames, then queue rows one by one.</div> <div>Example: <span class="mono">2_English.srt</span> can become <span class="mono">Episode.Name.en.srt</span>.</div></div> <div class="field"><label for="manageSubtitleRoot">Scan Root</label> <select id="manageSubtitleRoot"></select></div> <div class="field"><label for="manageSubtitlePath">Optional Subdirectory</label> <input id="manageSubtitlePath" placeholder="Series/Season/Subs"/></div> <div class="row" style="margin-top:14px"><button class="secondary">Scan Subtitle Renames</button> <button class="ghost">Use Current Browse Path</button></div> <div class="resultPane" style="margin-top:16px"><div class="resultHeader"><h2>Subtitle Rename Candidates</h2> <div id="subtitleScanCount" class="mono" style="color:var(--muted)"> </div></div> <div class="resultScroll" style="max-height:360px"><table style="table-layout:fixed"><thead><tr><th style="width:38%">Current</th><th style="width:38%">Suggested</th><th style="width:24%">Action</th></tr></thead><tbody id="subtitleScanTable"><!></tbody></table></div></div>`, 1);
+  var root_111 = from_html(`<div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)"><div class="previewLabel">Steps</div> <div>1. Choose the root to scan for subtitle fixes.</div> <div>2. Optionally narrow the subtitle scan path.</div> <div>3. Scan subtitle renames, then queue rows one by one.</div> <div>Example: <span class="mono">2_English.srt</span> can become <span class="mono">Episode.Name.en.srt</span>.</div></div> <div class="field"><label for="manageSubtitleRoot">Scan Root</label> <select id="manageSubtitleRoot"></select></div> <div class="field"><label for="manageSubtitlePath">Optional Subdirectory</label> <input id="manageSubtitlePath" placeholder="Series/Season/Subs"/></div> <div class="row" style="margin-top:14px"><button class="secondary">Scan Subtitle Renames</button> <button class="ghost">Use Current Browse Path</button></div> <div class="resultPane" style="margin-top:16px"><div class="resultHeader"><h2>Subtitle Rename Candidates</h2> <div id="subtitleScanCount" class="mono" style="color:var(--muted)"> </div></div> <div class="resultScroll" style="max-height:360px"><table style="table-layout:fixed"><thead><tr><th style="width:38%">Current</th><th style="width:38%">Suggested</th><th style="width:24%">Action</th></tr></thead><tbody id="subtitleScanTable"><!></tbody></table></div></div>`, 1);
   function ManageSubtitlePane($$anchor, $$props) {
     push($$props, false);
     const $manageFormState = () => store_get(manageFormState, "$manageFormState", $$stores);
@@ -8519,8 +8587,12 @@ ${component_stack}
         showToast("Copy failed: " + err);
       }
     }
+    function rootLabel(root14) {
+      if (!root14) return "";
+      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    }
     init();
-    var fragment = root_110();
+    var fragment = root_111();
     var div = sibling(first_child(fragment), 2);
     var select = sibling(child(div), 2);
     each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root14) => {
@@ -8528,12 +8600,15 @@ ${component_stack}
       var text2 = child(option, true);
       reset(option);
       var option_value = {};
-      template_effect(() => {
-        set_text(text2, get2(root14));
-        if (option_value !== (option_value = get2(root14))) {
-          option.value = (option.__value = get2(root14)) ?? "";
-        }
-      });
+      template_effect(
+        ($0) => {
+          set_text(text2, $0);
+          if (option_value !== (option_value = get2(root14).path)) {
+            option.value = (option.__value = get2(root14).path) ?? "";
+          }
+        },
+        [() => rootLabel(get2(root14))]
+      );
       append($$anchor2, option);
     });
     reset(select);
@@ -8628,7 +8703,7 @@ ${component_stack}
   delegate(["change", "input", "click"]);
 
   // _components/ManageWorkflowCard.svelte
-  var root_111 = from_html(`<button> </button>`);
+  var root_112 = from_html(`<button> </button>`);
   var root7 = from_html(`<div class="card"><div class="cardInner"><h2>Manage</h2> <div class="previewBox" style="margin-bottom:16px"><div class="previewLabel">Flow</div> <div style="color:var(--muted); line-height:1.55">Step 1: choose what kind of maintenance you want to do. <br/>Step 2: scan only for candidates relevant to that mode. <br/>Step 3: preview one candidate or queue the action. <br/>Only the real action asks for password. Preview and scan stay password-free. <br/><strong>Root</strong> is the configured top-level media root. <br/><strong>Optional Subdirectory</strong> narrows the scan inside that root. Leave it empty to scan the whole root. <br/>Use <strong>Current Browse Path</strong> to avoid typing when you already navigated to the right area in Browse.</div></div> <div class="subTabs"></div> <div id="manage-pane-suggest"><!></div> <div id="manage-pane-common"><!></div> <div id="manage-pane-subtitles"><!></div> <div id="manage-pane-rename"><!></div> <div id="manage-pane-move"><!></div> <div id="manage-pane-delete"><!></div></div></div>`);
   function ManageWorkflowCard($$anchor, $$props) {
     push($$props, false);
@@ -8649,7 +8724,7 @@ ${component_stack}
     var div_1 = child(div);
     var div_2 = sibling(child(div_1), 4);
     each(div_2, 5, () => manageTabs_default, index, ($$anchor2, tab) => {
-      var button = root_111();
+      var button = root_112();
       let classes;
       var text2 = child(button, true);
       reset(button);
@@ -8989,7 +9064,7 @@ ${component_stack}
   }
 
   // _components/QueueTabPane.svelte
-  var root_112 = from_html(`<div class="mono"> </div>`);
+  var root_113 = from_html(`<div class="mono"> </div>`);
   var root_43 = from_html(`<div class="previewItem"><div class="previewLabel">Running</div> <div class="mono"> <br/> </div> <!> <!></div>`);
   var root_54 = from_html(`<div class="previewItem"><div class="previewLabel">Queued</div> <div class="mono"> <br/> </div> <!> <div class="row" style="margin:6px 0 0 0"><input type="checkbox"/> <button class="ghost warn">Cancel</button></div> <!></div>`);
   var root_36 = from_html(`<!> <!>`, 1);
@@ -9183,7 +9258,7 @@ ${component_stack}
     var node = child(div_5);
     {
       var consequent = ($$anchor2) => {
-        var div_6 = root_112();
+        var div_6 = root_113();
         var text_1 = child(div_6, true);
         reset(div_6);
         template_effect(() => set_text(text_1, get2(queueError)));
@@ -9386,13 +9461,14 @@ ${component_stack}
   delegate(["click", "change"]);
 
   // _components/SearchTabPane.svelte
-  var root_113 = from_html(`<th class="clickable"> </th>`);
+  var root_114 = from_html(`<th class="clickable"> </th>`);
   var root_27 = from_html(`<tr><td colspan="6" class="empty"> </td></tr>`);
   var root_37 = from_html(`<tr><td colspan="6" class="empty">No results</td></tr>`);
-  var root_65 = from_html(`<span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span>`, 1);
-  var root_74 = from_html(`<span class="fdFile">1 F</span>`);
-  var root_55 = from_html(`<tr><td><span> </span></td><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><button class="ghost iconBtn" title="Show in Browse">\u2197</button> <button class="ghost iconBtn">\u29C9</button></span></div></td><td> </td><td><!></td><td></td><td class="mono"></td></tr>`);
-  var root11 = from_html(`<section id="tab-search"><div class="card"><div class="cardInner"><div class="row singleRow"><input placeholder="Search directory names and video filenames"/> <div class="checkRow"><label><input type="checkbox"/>directories</label> <label><input type="checkbox"/>video files</label></div> <button class="secondary"> </button></div> <div class="resultPane" style="margin-top:16px"><div class="resultHeader"><div class="toolbarRow"><div class="toolbarGroup"><h2>Search Results</h2> <input placeholder="Filter results" style="max-width:180px"/> <div class="toolbarMeta"> </div></div> <div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide">\u25F7</button> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div> <div class="resultScroll"><table style="table-layout:fixed"><thead><tr></tr></thead><tbody><!></tbody></table></div> <div class="toolbarRow" style="margin-top:12px"><div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div></div></div></section>`);
+  var root_65 = from_html(`<button class="ghost iconBtn" title="Open file externally">\u2934</button>`);
+  var root_74 = from_html(`<span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span>`, 1);
+  var root_84 = from_html(`<span class="fdFile">1 F</span>`);
+  var root_55 = from_html(`<tr><td><span> </span></td><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><button class="ghost iconBtn">\u29C9</button> <!></span></div></td><td><span class="typeCell"><span> </span> <button class="ghost iconBtn" title="Show in Browse">\u2197</button></span></td><td><!></td><td></td><td class="mono"></td></tr>`);
+  var root11 = from_html(`<section id="tab-search"><div class="card"><div class="cardInner"><div class="row singleRow"><input placeholder="Search directory names and video filenames"/> <div class="checkRow"><label class="checkInline"><input type="checkbox"/> directories</label> <label class="checkInline"><input type="checkbox"/> video files</label></div> <button class="secondary"> </button></div> <div class="resultPane" style="margin-top:16px"><div class="resultHeader"><div class="toolbarRow"><div class="toolbarGroup"><h2>Search Results</h2> <input placeholder="Filter results" style="max-width:180px"/> <div class="toolbarMeta"> </div></div> <div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide">\u25F7</button> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div> <div class="resultScroll"><table style="table-layout:fixed"><thead><tr></tr></thead><tbody><!></tbody></table></div> <div class="toolbarRow" style="margin-top:12px"><div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div></div></div></section>`);
   function SearchTabPane($$anchor, $$props) {
     push($$props, false);
     const $activeTab = () => store_get(activeTab, "$activeTab", $$stores);
@@ -9402,8 +9478,8 @@ ${component_stack}
     const pageInfo = mutable_source();
     const countText = mutable_source();
     let query = mutable_source("");
-    let dirOnly = mutable_source(true);
-    let fileOnly = mutable_source(false);
+    let dirChecked = mutable_source(true);
+    let fileChecked = mutable_source(true);
     let filterText = mutable_source("");
     let relativeTime = mutable_source(true);
     let rows = mutable_source([]);
@@ -9429,8 +9505,8 @@ ${component_stack}
       if (!message) return;
       showToast(String(message));
     }
-    function formatAgeByMode2(value) {
-      return formatAgeByMode(value || "", get2(relativeTime)) || escapeHtml2(value || "");
+    function renderAge(value, useRelative) {
+      return formatAgeByMode(value || "", useRelative) || escapeHtml2(value || "");
     }
     function searchRelativeTimeTitle2(enabled) {
       return "Relative time: " + (enabled ? "On" : "Off");
@@ -9438,19 +9514,9 @@ ${component_stack}
     function sortHeaderText2(label, field) {
       return label + (sortBy === field ? sortDesc ? " \u2193" : " \u2191" : "");
     }
-    function normalizeKinds(changed) {
-      if (get2(dirOnly) || get2(fileOnly)) return;
-      if (changed === "file") {
-        set(dirOnly, true);
-        set(fileOnly, false);
-        return;
-      }
-      set(dirOnly, false);
-      set(fileOnly, true);
-    }
     function currentSearchKind3() {
-      if (get2(dirOnly) && get2(fileOnly)) return "";
-      if (get2(fileOnly)) return "file";
+      if (get2(dirChecked) && get2(fileChecked)) return "all";
+      if (get2(fileChecked)) return "file";
       return "dir";
     }
     function compareByField2(a, b) {
@@ -9518,6 +9584,15 @@ ${component_stack}
         set(loading, false);
       }
     }
+    function toggleSearchKind(kind, checked) {
+      if (kind === "dir") {
+        set(dirChecked, checked);
+        if (!get2(dirChecked) && !get2(fileChecked)) set(fileChecked, true);
+        return;
+      }
+      set(fileChecked, checked);
+      if (!get2(dirChecked) && !get2(fileChecked)) set(dirChecked, true);
+    }
     function setSort(field) {
       if (sortBy === field) {
         sortDesc = !sortDesc;
@@ -9552,6 +9627,20 @@ ${component_stack}
         toast("Copied path");
       } catch (err) {
         toast("Copy failed: " + err);
+      }
+    }
+    async function openExternal(path, event2) {
+      if (event2) {
+        event2.preventDefault();
+        event2.stopPropagation();
+      }
+      try {
+        const url = new URL(apiUrl("open", "/api/open"), window.location.origin);
+        url.searchParams.set("path", path || "");
+        const res = await getJSON(url.toString());
+        toast(res?.message || "Opened file");
+      } catch (err) {
+        toast("Open failed: " + err);
       }
     }
     legacy_pre_effect(() => (get2(rows), get2(filterText)), () => {
@@ -9620,7 +9709,7 @@ ${component_stack}
     var thead = child(table);
     var tr = child(thead);
     each(tr, 5, () => headers, index, ($$anchor2, header) => {
-      var th = root_113();
+      var th = root_114();
       var text_4 = child(th, true);
       reset(th);
       template_effect(
@@ -9670,24 +9759,39 @@ ${component_stack}
           reset(span_1);
           var span_2 = sibling(span_1, 2);
           var button_4 = child(span_2);
-          var button_5 = sibling(button_4, 2);
+          var node_2 = sibling(button_4, 2);
+          {
+            var consequent_2 = ($$anchor4) => {
+              var button_5 = root_65();
+              delegated("click", button_5, (event2) => openExternal(get2(item).path || "", event2));
+              append($$anchor4, button_5);
+            };
+            if_block(node_2, ($$render) => {
+              if (get2(item), untrack(() => !get2(item).isDir)) $$render(consequent_2);
+            });
+          }
           reset(span_2);
           reset(div_12);
           reset(td_2);
           var td_3 = sibling(td_2);
-          var text_8 = child(td_3);
+          var span_3 = child(td_3);
+          var span_4 = child(span_3);
+          var text_8 = child(span_4);
+          reset(span_4);
+          var button_6 = sibling(span_4, 2);
+          reset(span_3);
           reset(td_3);
           var td_4 = sibling(td_3);
-          var node_2 = child(td_4);
+          var node_3 = child(td_4);
           {
-            var consequent_2 = ($$anchor4) => {
-              var fragment_1 = root_65();
-              var span_3 = first_child(fragment_1);
-              var text_9 = child(span_3);
-              reset(span_3);
-              var span_4 = sibling(span_3, 2);
-              var text_10 = child(span_4);
-              reset(span_4);
+            var consequent_3 = ($$anchor4) => {
+              var fragment_1 = root_74();
+              var span_5 = first_child(fragment_1);
+              var text_9 = child(span_5);
+              reset(span_5);
+              var span_6 = sibling(span_5, 2);
+              var text_10 = child(span_6);
+              reset(span_6);
               template_effect(() => {
                 set_text(text_9, `${(get2(item), untrack(() => get2(item).fileCount || 0)) ?? ""} F`);
                 set_text(text_10, `${(get2(item), untrack(() => get2(item).dirCount || 0)) ?? ""} D`);
@@ -9695,11 +9799,11 @@ ${component_stack}
               append($$anchor4, fragment_1);
             };
             var alternate = ($$anchor4) => {
-              var span_5 = root_74();
-              append($$anchor4, span_5);
+              var span_7 = root_84();
+              append($$anchor4, span_7);
             };
-            if_block(node_2, ($$render) => {
-              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_2);
+            if_block(node_3, ($$render) => {
+              if (get2(item), untrack(() => get2(item).isDir)) $$render(consequent_3);
               else $$render(alternate, -1);
             });
           }
@@ -9714,7 +9818,7 @@ ${component_stack}
           var td_6 = sibling(td_5);
           html(
             td_6,
-            () => (get2(item), untrack(() => formatAgeByMode2(get2(item).modifiedAt || ""))),
+            () => (get2(item), get2(relativeTime), untrack(() => renderAge(get2(item).modifiedAt || "", get2(relativeTime)))),
             true
           );
           reset(td_6);
@@ -9724,11 +9828,11 @@ ${component_stack}
             set_text(text_6, (get2(item), untrack(() => get2(item).isDir ? "DIR" : "FILE")));
             set_attribute2(span_1, "title", (get2(item), untrack(() => get2(item).path || "")));
             set_text(text_7, (get2(item), untrack(() => get2(item).base || "")));
-            set_attribute2(button_5, "title", (get2(item), untrack(() => get2(item).path || "")));
+            set_attribute2(button_4, "title", (get2(item), untrack(() => get2(item).path || "")));
             set_text(text_8, `${(get2(item), untrack(() => get2(item).rootKind || "")) ?? ""} / ${(get2(item), untrack(() => get2(item).root || "")) ?? ""}`);
           });
-          delegated("click", button_4, (event2) => showInBrowse(get2(item).path || "", get2(item).isDir, event2));
-          delegated("click", button_5, (event2) => copyPath(get2(item).path || "", event2));
+          delegated("click", button_4, (event2) => copyPath(get2(item).path || "", event2));
+          delegated("click", button_6, (event2) => showInBrowse(get2(item).path || "", get2(item).isDir, event2));
           append($$anchor3, tr_3);
         });
         append($$anchor2, fragment);
@@ -9747,8 +9851,8 @@ ${component_stack}
     var div_15 = child(div_14);
     var text_11 = child(div_15, true);
     reset(div_15);
-    var button_6 = sibling(div_15, 2);
-    var button_7 = sibling(button_6, 2);
+    var button_7 = sibling(div_15, 2);
+    var button_8 = sibling(button_7, 2);
     reset(div_14);
     reset(div_13);
     reset(div_4);
@@ -9758,6 +9862,8 @@ ${component_stack}
     template_effect(
       ($0) => {
         classes = set_class(section, 1, "tabPane", null, classes, { active: $activeTab() === "search" });
+        set_checked(input_1, get2(dirChecked));
+        set_checked(input_2, get2(fileChecked));
         button.disabled = get2(loading);
         set_text(text_1, get2(loading) ? "Searching..." : "Search");
         set_text(text_2, get2(countText));
@@ -9766,8 +9872,8 @@ ${component_stack}
         button_2.disabled = get2(page) <= 0;
         button_3.disabled = get2(page) >= get2(totalPages) - 1;
         set_text(text_11, get2(pageInfo));
-        button_6.disabled = get2(page) <= 0;
-        button_7.disabled = get2(page) >= get2(totalPages) - 1;
+        button_7.disabled = get2(page) <= 0;
+        button_8.disabled = get2(page) >= get2(totalPages) - 1;
       },
       [
         () => (get2(relativeTime), untrack(() => searchRelativeTimeTitle2(get2(relativeTime))))
@@ -9779,17 +9885,15 @@ ${component_stack}
       runSearch2(true);
     });
     bind_value(input, () => get2(query), ($$value) => set(query, $$value));
-    delegated("change", input_1, () => normalizeKinds("dir"));
-    bind_checked(input_1, () => get2(dirOnly), ($$value) => set(dirOnly, $$value));
-    delegated("change", input_2, () => normalizeKinds("file"));
-    bind_checked(input_2, () => get2(fileOnly), ($$value) => set(fileOnly, $$value));
+    delegated("change", input_1, (event2) => toggleSearchKind("dir", event2.currentTarget.checked));
+    delegated("change", input_2, (event2) => toggleSearchKind("file", event2.currentTarget.checked));
     delegated("click", button, () => runSearch2(true));
     bind_value(input_3, () => get2(filterText), ($$value) => set(filterText, $$value));
     delegated("click", button_1, () => set(relativeTime, !get2(relativeTime)));
     delegated("click", button_2, () => changePage(-1));
     delegated("click", button_3, () => changePage(1));
-    delegated("click", button_6, () => changePage(-1));
-    delegated("click", button_7, () => changePage(1));
+    delegated("click", button_7, () => changePage(-1));
+    delegated("click", button_8, () => changePage(1));
     append($$anchor, section);
     pop();
     $$cleanup();
@@ -11958,6 +12062,9 @@ ${component_stack}
         case "setManageSelectedSourceFromBrowse":
           setManageSelectedSourceFromBrowse2();
           break;
+        case "prefillManageRenameFromPath":
+          prefillManageRenameFromPath(detail.path || "");
+          break;
         case "closeManageModal":
           closeManageModal3();
           break;
@@ -12275,6 +12382,19 @@ ${component_stack}
         syncManageRenamePath,
         populateManageCategorySubdir
       });
+    }
+    function prefillManageRenameFromPath(path) {
+      const clean = String(path || "").trim();
+      if (!clean) {
+        showToast("Rename path is required");
+        return;
+      }
+      switchTab3("manage");
+      switchManageTab("rename");
+      manageState.selectedSource = clean;
+      renderManageSelectedSource();
+      syncManageRenamePath();
+      populateManageCategorySubdir(manageState.selectedSource);
     }
     function prefillManageFromPath(kind, fullPath) {
       prefillFromPath({

@@ -15,6 +15,11 @@
       cleanupBrowse();
     };
   });
+
+  function rootLabel(root) {
+    if (!root) return '';
+    return root.base && root.base !== root.path ? `${root.base} · ${root.path}` : (root.path || '');
+  }
 </script>
 
 <div class="previewBox" style="margin-bottom:12px; min-height:auto; padding:10px 12px; color:var(--muted)">
@@ -28,7 +33,7 @@
   <label for="manageDstRoot">Destination Root</label>
   <select id="manageDstRoot" value={$manageFormState.dstRoot} onchange={(event) => requestManageFormPatch({ dstRoot: event.currentTarget.value })}>
     {#each $browseBridgeState.roots as root}
-      <option value={root}>{root}</option>
+      <option value={root.path}>{rootLabel(root)}</option>
     {/each}
   </select>
 </div>

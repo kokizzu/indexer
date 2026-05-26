@@ -4,6 +4,7 @@ const (
 	StatusAction            = "status"
 	ReindexAction           = "reindex"
 	BrowseAction            = "browse"
+	OpenAction              = "open"
 	DuplicatesAction        = "duplicates"
 	SearchAction            = "search"
 	SuggestAction           = "suggest"

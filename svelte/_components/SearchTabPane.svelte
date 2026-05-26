@@ -5,8 +5,8 @@
   import { escapeHtml, formatBytesHtml, formatAgeByMode as renderAgeByMode } from '../_helpers/xFormatter.js';
 
   let query = '';
-  let dirOnly = true;
-  let fileOnly = false;
+  let dirChecked = true;
+  let fileChecked = true;
   let filterText = '';
   let relativeTime = true;
   let rows = [];
@@ -36,8 +36,8 @@
     showToast(String(message));
   }
 
-  function formatAgeByMode(value) {
-    return renderAgeByMode(value || '', relativeTime) || escapeHtml(value || '');
+  function renderAge(value, useRelative) {
+    return renderAgeByMode(value || '', useRelative) || escapeHtml(value || '');
   }
 
   function searchRelativeTimeTitle(enabled) {
@@ -48,20 +48,9 @@
     return label + (sortBy === field ? (sortDesc ? ' ↓' : ' ↑') : '');
   }
 
-  function normalizeKinds(changed) {
-    if (dirOnly || fileOnly) return;
-    if (changed === 'file') {
-      dirOnly = true;
-      fileOnly = false;
-      return;
-    }
-    dirOnly = false;
-    fileOnly = true;
-  }
-
   function currentSearchKind() {
-    if (dirOnly && fileOnly) return '';
-    if (fileOnly) return 'file';
+    if (dirChecked && fileChecked) return 'all';
+    if (fileChecked) return 'file';
     return 'dir';
   }
 
@@ -133,6 +122,16 @@
     }
   }
 
+  function toggleSearchKind(kind, checked) {
+    if (kind === 'dir') {
+      dirChecked = checked;
+      if (!dirChecked && !fileChecked) fileChecked = true;
+      return;
+    }
+    fileChecked = checked;
+    if (!dirChecked && !fileChecked) dirChecked = true;
+  }
+
   function setSort(field) {
     if (sortBy === field) {
       sortDesc = !sortDesc;
@@ -175,6 +174,21 @@
     }
   }
 
+  async function openExternal(path, event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    try {
+      const url = new URL(apiUrl('open', '/api/open'), window.location.origin);
+      url.searchParams.set('path', path || '');
+      const res = await getJSON(url.toString());
+      toast(res?.message || 'Opened file');
+    } catch (err) {
+      toast('Open failed: ' + err);
+    }
+  }
+
   $: filteredRows = rows
     .filter(item => {
       const filter = filterText.trim().toLowerCase();
@@ -205,8 +219,8 @@
           }}
         >
         <div class="checkRow">
-          <label><input type="checkbox" bind:checked={dirOnly} onchange={() => normalizeKinds('dir')}>directories</label>
-          <label><input type="checkbox" bind:checked={fileOnly} onchange={() => normalizeKinds('file')}>video files</label>
+          <label class="checkInline"><input type="checkbox" checked={dirChecked} onchange={(event) => toggleSearchKind('dir', event.currentTarget.checked)}> directories</label>
+          <label class="checkInline"><input type="checkbox" checked={fileChecked} onchange={(event) => toggleSearchKind('file', event.currentTarget.checked)}> video files</label>
         </div>
         <button class="secondary" onclick={() => runSearch(true)} disabled={loading}>{loading ? 'Searching...' : 'Search'}</button>
       </div>
@@ -248,12 +262,19 @@
                       <div class="nameCell">
                         <span class="nameLabel cellEllipsis" title={item.path || ''}>{item.base || ''}</span>
                         <span class="rowActions">
-                          <button class="ghost iconBtn" title="Show in Browse" onclick={(event) => showInBrowse(item.path || '', item.isDir, event)}>↗</button>
                           <button class="ghost iconBtn" title={item.path || ''} onclick={(event) => copyPath(item.path || '', event)}>⧉</button>
+                          {#if !item.isDir}
+                            <button class="ghost iconBtn" title="Open file externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
+                          {/if}
                         </span>
                       </div>
                     </td>
-                    <td>{item.rootKind || ''} / {item.root || ''}</td>
+                    <td>
+                      <span class="typeCell">
+                        <span>{item.rootKind || ''} / {item.root || ''}</span>
+                        <button class="ghost iconBtn" title="Show in Browse" onclick={(event) => showInBrowse(item.path || '', item.isDir, event)}>↗</button>
+                      </span>
+                    </td>
                     <td>
                       {#if item.isDir}
                         <span class="fdFile tooltipish" title="descendant files">{item.fileCount || 0} F</span>
@@ -263,7 +284,7 @@
                       {/if}
                     </td>
                     <td>{@html formatBytesHtml(item.size || 0)}</td>
-                    <td class="mono">{@html formatAgeByMode(item.modifiedAt || '')}</td>
+                    <td class="mono">{@html renderAge(item.modifiedAt || '', relativeTime)}</td>
                   </tr>
                 {/each}
               {/if}
