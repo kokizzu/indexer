@@ -413,9 +413,6 @@
                       <span class="nameLabel cellEllipsis" title={item.path || ''}>{item.base || ''}</span>
                       <span class="rowActions">
                         <button class="ghost iconBtn" title={item.path || ''} onclick={(event) => copyPath(item.path || '', event)}>⧉</button>
-                        {#if item.isDir === false}
-                          <button class="ghost iconBtn" title="Open file externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
-                        {/if}
                         <button class="ghost iconBtn" title="Rename" onclick={() => renameFromBrowse(item.path || '')}>✎</button>
                       </span>
                     </div>
@@ -423,6 +420,7 @@
                   <td>
                     <span class="typeCell">
                       <span class={`pill ${item.isDir ? 'pillDir' : 'pillFile'}`}>{item.isDir ? 'DIR' : 'FILE'}</span>
+                      <button class="ghost iconBtn" title="Open externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
                       {#if item.isDir}
                         <button class="ghost iconBtn" title="Open directory" onclick={() => selectPath(item.path || '')}>↗</button>
                       {/if}

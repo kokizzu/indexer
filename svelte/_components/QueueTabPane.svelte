@@ -196,7 +196,21 @@
     }
   }
 
-  $: syncPolling();
+  $: shouldPollQueue = mounted && $activeTab === 'queue' && ((runningTasks && runningTasks.length > 0) || (queued && queued.length > 0));
+  $: if (mounted) {
+    if (shouldPollQueue && !queueTimer) {
+      queueTimer = window.setInterval(refreshQueue, 3000);
+    } else if (!shouldPollQueue && queueTimer) {
+      window.clearInterval(queueTimer);
+      queueTimer = null;
+    }
+    if (shouldPollQueue && !historyTimer) {
+      historyTimer = window.setInterval(refreshHistory, 5000);
+    } else if (!shouldPollQueue && historyTimer) {
+      window.clearInterval(historyTimer);
+      historyTimer = null;
+    }
+  }
 
   onMount(async () => {
     await Promise.all([refreshQueue(), refreshHistory()]);

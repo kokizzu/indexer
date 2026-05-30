@@ -263,15 +263,13 @@
                         <span class="nameLabel cellEllipsis" title={item.path || ''}>{item.base || ''}</span>
                         <span class="rowActions">
                           <button class="ghost iconBtn" title={item.path || ''} onclick={(event) => copyPath(item.path || '', event)}>⧉</button>
-                          {#if !item.isDir}
-                            <button class="ghost iconBtn" title="Open file externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
-                          {/if}
                         </span>
                       </div>
                     </td>
                     <td>
                       <span class="typeCell">
-                        <span>{item.rootKind || ''} / {item.root || ''}</span>
+                        <span class="cellEllipsis" title={`${item.rootKind || ''} / ${item.root || ''}`}>{item.rootKind || ''} / {item.root || ''}</span>
+                        <button class="ghost iconBtn" title="Open externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
                         <button class="ghost iconBtn" title="Show in Browse" onclick={(event) => showInBrowse(item.path || '', item.isDir, event)}>↗</button>
                       </span>
                     </td>

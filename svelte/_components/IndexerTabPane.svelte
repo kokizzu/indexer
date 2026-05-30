@@ -108,7 +108,7 @@
 
   function syncPolling() {
     if (!mounted) return;
-    const shouldPoll = $activeTab === 'indexer' && Boolean(status?.running);
+    const shouldPoll = $activeTab === 'indexer' && (startingReindex || Boolean(status?.running));
     if (shouldPoll && !pollTimer) {
       pollTimer = window.setInterval(refreshStatus, 3000);
     } else if (!shouldPoll && pollTimer) {
@@ -117,7 +117,15 @@
     }
   }
 
-  $: syncPolling();
+  $: shouldPollStatus = mounted && $activeTab === 'indexer' && (startingReindex || Boolean(status?.running));
+  $: if (mounted) {
+    if (shouldPollStatus && !pollTimer) {
+      pollTimer = window.setInterval(refreshStatus, 3000);
+    } else if (!shouldPollStatus && pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
 
   onMount(async () => {
     await Promise.all([loadRoots(), refreshStatus()]);
@@ -137,7 +145,9 @@
         <h1>Indexer</h1>
         <p>Local media indexer for video libraries. Search is built from folder names and video filenames, with resumable mount-aware reindex and safe local file operations.</p>
         <div class="row" style="margin-top:14px">
-          <button onclick={startReindex} disabled={startingReindex}>{startingReindex ? 'Starting...' : 'Start Reindex'}</button>
+          <button onclick={startReindex} disabled={startingReindex || Boolean(status?.running)}>
+            {startingReindex ? 'Starting...' : status?.running ? 'Running...' : 'Start Reindex'}
+          </button>
           <select bind:value={selectedPriorityRoots} multiple size="5" style="min-width:340px">
             {#each availableRoots as root}
               <option value={root.path}>{rootLabel(root)}</option>
