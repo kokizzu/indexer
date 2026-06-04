@@ -110,7 +110,7 @@
     if (!mounted) return;
     const shouldPoll = $activeTab === 'indexer' && (startingReindex || Boolean(status?.running));
     if (shouldPoll && !pollTimer) {
-      pollTimer = window.setInterval(refreshStatus, 3000);
+      pollTimer = window.setInterval(refreshStatus, 1000);
     } else if (!shouldPoll && pollTimer) {
       window.clearInterval(pollTimer);
       pollTimer = null;
@@ -120,7 +120,7 @@
   $: shouldPollStatus = mounted && $activeTab === 'indexer' && (startingReindex || Boolean(status?.running));
   $: if (mounted) {
     if (shouldPollStatus && !pollTimer) {
-      pollTimer = window.setInterval(refreshStatus, 3000);
+      pollTimer = window.setInterval(refreshStatus, 1000);
     } else if (!shouldPollStatus && pollTimer) {
       window.clearInterval(pollTimer);
       pollTimer = null;

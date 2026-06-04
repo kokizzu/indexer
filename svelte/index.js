@@ -7799,7 +7799,7 @@ ${component_stack}
       if (!get2(mounted)) return;
       const shouldPoll = $activeTab() === "indexer" && (get2(startingReindex) || Boolean(get2(status)?.running));
       if (shouldPoll && !get2(pollTimer)) {
-        set(pollTimer, window.setInterval(refreshStatus2, 3e3));
+        set(pollTimer, window.setInterval(refreshStatus2, 1e3));
       } else if (!shouldPoll && get2(pollTimer)) {
         window.clearInterval(get2(pollTimer));
         set(pollTimer, null);
@@ -7822,7 +7822,7 @@ ${component_stack}
     legacy_pre_effect(() => (get2(mounted), get2(shouldPollStatus), get2(pollTimer)), () => {
       if (get2(mounted)) {
         if (get2(shouldPollStatus) && !get2(pollTimer)) {
-          set(pollTimer, window.setInterval(refreshStatus2, 3e3));
+          set(pollTimer, window.setInterval(refreshStatus2, 1e3));
         } else if (!get2(shouldPollStatus) && get2(pollTimer)) {
           window.clearInterval(get2(pollTimer));
           set(pollTimer, null);
