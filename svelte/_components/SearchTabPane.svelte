@@ -1,8 +1,15 @@
 <script>
+  import { onMount } from 'svelte';
   import { activeTab, setActiveTab } from '../_states/activeTab.js';
   import IndexerApi from '../jsApi.GEN.js';
   import { showToast } from '../_helpers/xNotifier.js';
   import { escapeHtml, formatBytesHtml, formatAgeByMode as renderAgeByMode } from '../_helpers/xFormatter.js';
+
+  const SEARCH_QUERY_KEY = 'indexer.search.query';
+  const SEARCH_DIR_KEY = 'indexer.search.dirChecked';
+  const SEARCH_FILE_KEY = 'indexer.search.fileChecked';
+  const SEARCH_FILTER_KEY = 'indexer.search.filterText';
+  const SEARCH_RELATIVE_TIME_KEY = 'indexer.search.relativeTime';
 
   let query = '';
   let dirChecked = true;
@@ -17,6 +24,7 @@
   let sortDesc = true;
   let loading = false;
   let error = '';
+  let restored = false;
 
   const headers = [
     { field: 'isDir', label: 'Type', width: '8%' },
@@ -204,6 +212,35 @@
 
   async function openExternalDirectory(path, isDir, event) {
     return openExternal(containingDirectory(path, isDir), event);
+  }
+
+  onMount(() => {
+    try {
+      const savedQuery = localStorage.getItem(SEARCH_QUERY_KEY);
+      const savedDir = localStorage.getItem(SEARCH_DIR_KEY);
+      const savedFile = localStorage.getItem(SEARCH_FILE_KEY);
+      const savedFilter = localStorage.getItem(SEARCH_FILTER_KEY);
+      const savedRelativeTime = localStorage.getItem(SEARCH_RELATIVE_TIME_KEY);
+      if (savedQuery !== null) query = savedQuery;
+      if (savedDir !== null) dirChecked = savedDir === 'true';
+      if (savedFile !== null) fileChecked = savedFile === 'true';
+      if (savedFilter !== null) filterText = savedFilter;
+      if (savedRelativeTime !== null) relativeTime = savedRelativeTime === 'true';
+      if (!dirChecked && !fileChecked) dirChecked = true;
+    } catch (_) {
+    } finally {
+      restored = true;
+    }
+  });
+
+  $: if (restored) {
+    try {
+      localStorage.setItem(SEARCH_QUERY_KEY, query);
+      localStorage.setItem(SEARCH_DIR_KEY, String(dirChecked));
+      localStorage.setItem(SEARCH_FILE_KEY, String(fileChecked));
+      localStorage.setItem(SEARCH_FILTER_KEY, filterText);
+      localStorage.setItem(SEARCH_RELATIVE_TIME_KEY, String(relativeTime));
+    } catch (_) {}
   }
 
   $: filteredRows = rows

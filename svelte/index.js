@@ -9590,6 +9590,11 @@ ${component_stack}
     const totalPages = mutable_source();
     const pageInfo = mutable_source();
     const countText = mutable_source();
+    const SEARCH_QUERY_KEY = "indexer.search.query";
+    const SEARCH_DIR_KEY = "indexer.search.dirChecked";
+    const SEARCH_FILE_KEY = "indexer.search.fileChecked";
+    const SEARCH_FILTER_KEY = "indexer.search.filterText";
+    const SEARCH_RELATIVE_TIME_KEY = "indexer.search.relativeTime";
     let query = mutable_source("");
     let dirChecked = mutable_source(true);
     let fileChecked = mutable_source(false);
@@ -9603,6 +9608,7 @@ ${component_stack}
     let sortDesc = true;
     let loading = mutable_source(false);
     let error = mutable_source("");
+    let restored = mutable_source(false);
     const headers = [
       { field: "isDir", label: "Type", width: "8%" },
       { field: "base", label: "Name", width: "45%" },
@@ -9770,6 +9776,39 @@ ${component_stack}
     async function openExternalDirectory(path, isDir, event2) {
       return openExternal(containingDirectory(path, isDir), event2);
     }
+    onMount(() => {
+      try {
+        const savedQuery = localStorage.getItem(SEARCH_QUERY_KEY);
+        const savedDir = localStorage.getItem(SEARCH_DIR_KEY);
+        const savedFile = localStorage.getItem(SEARCH_FILE_KEY);
+        const savedFilter = localStorage.getItem(SEARCH_FILTER_KEY);
+        const savedRelativeTime = localStorage.getItem(SEARCH_RELATIVE_TIME_KEY);
+        if (savedQuery !== null) set(query, savedQuery);
+        if (savedDir !== null) set(dirChecked, savedDir === "true");
+        if (savedFile !== null) set(fileChecked, savedFile === "true");
+        if (savedFilter !== null) set(filterText, savedFilter);
+        if (savedRelativeTime !== null) set(relativeTime, savedRelativeTime === "true");
+        if (!get2(dirChecked) && !get2(fileChecked)) set(dirChecked, true);
+      } catch (_) {
+      } finally {
+        set(restored, true);
+      }
+    });
+    legacy_pre_effect(
+      () => (get2(restored), get2(query), get2(dirChecked), get2(fileChecked), get2(filterText), get2(relativeTime)),
+      () => {
+        if (get2(restored)) {
+          try {
+            localStorage.setItem(SEARCH_QUERY_KEY, get2(query));
+            localStorage.setItem(SEARCH_DIR_KEY, String(get2(dirChecked)));
+            localStorage.setItem(SEARCH_FILE_KEY, String(get2(fileChecked)));
+            localStorage.setItem(SEARCH_FILTER_KEY, get2(filterText));
+            localStorage.setItem(SEARCH_RELATIVE_TIME_KEY, String(get2(relativeTime)));
+          } catch (_) {
+          }
+        }
+      }
+    );
     legacy_pre_effect(() => (get2(rows), get2(filterText)), () => {
       set(filteredRows, get2(rows).filter((item) => {
         const filter = get2(filterText).trim().toLowerCase();
