@@ -363,7 +363,7 @@
     .nameCell {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 2px;
       min-width: 0;
     }
     .nameLabel {
@@ -373,20 +373,20 @@
     .rowActions {
       display: inline-flex;
       align-items: center;
-      gap: 3px;
+      gap: 1px;
       flex: 0 0 auto;
     }
     .iconBtn {
       min-width: 22px;
       height: 20px;
-      padding: 1px 4px;
+      padding: 1px 3px;
       line-height: 1;
       font-size: 12px;
     }
     .typeCell {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 1px;
     }
     .tooltipish { text-decoration: underline dotted; text-underline-offset: 2px; }
     .fdFile { color: #7ad7ff; }

@@ -341,19 +341,35 @@ func boolToUInt8(v bool) int {
 
 func searchWhere(q, kind string) []string {
 	var where []string
+	kind = strings.TrimSpace(strings.ToLower(kind))
 	tokens := searchTokens(q)
 	compact := compactSearchToken(q)
 	useCompact := shouldUseCompactSearch(q, tokens, compact)
 	if useCompact {
 		where = append(where, "positionCaseInsensitiveUTF8(replaceRegexpAll(content, '[^0-9A-Za-z]+', ''), "+quoteSQL(compact)+") > 0")
 	} else if len(tokens) > 0 {
-		tokenClauses := make([]string, 0, len(tokens))
+		tokenCounts := make(map[string]int, len(tokens))
 		for _, token := range tokens {
+			tokenCounts[token]++
+		}
+		tokenClauses := make([]string, 0, len(tokenCounts))
+		for token, count := range tokenCounts {
+			if count > 1 {
+				needle := quoteSQL(strings.ToLower(token))
+				switch kind {
+				case "file":
+					tokenClauses = append(tokenClauses, "(countSubstrings(lowerUTF8(base), "+needle+") >= "+strconv.Itoa(count)+")")
+				case "dir":
+					tokenClauses = append(tokenClauses, "(countSubstrings(lowerUTF8(content), "+needle+") >= "+strconv.Itoa(count)+")")
+				default:
+					tokenClauses = append(tokenClauses, "((is_dir = 0 AND countSubstrings(lowerUTF8(base), "+needle+") >= "+strconv.Itoa(count)+") OR (is_dir = 1 AND countSubstrings(lowerUTF8(content), "+needle+") >= "+strconv.Itoa(count)+"))")
+				}
+				continue
+			}
 			tokenClauses = append(tokenClauses, "(hasTokenCaseInsensitive(content, "+quoteSQL(token)+") OR positionCaseInsensitiveUTF8(lowerUTF8(content), "+quoteSQL(strings.ToLower(token))+") > 0)")
 		}
 		where = append(where, strings.Join(tokenClauses, " AND "))
 	}
-	kind = strings.TrimSpace(strings.ToLower(kind))
 	if kind == "" || kind == "all" {
 		return where
 	}

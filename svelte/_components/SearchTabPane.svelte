@@ -161,6 +161,10 @@
     }));
   }
 
+  async function openDirectory(path, isDir, event) {
+    return showInBrowse(path, isDir, event);
+  }
+
   async function copyPath(path, event) {
     if (event) {
       event.preventDefault();
@@ -187,6 +191,19 @@
     } catch (err) {
       toast('Open failed: ' + err);
     }
+  }
+
+  function containingDirectory(path, isDir) {
+    if (isDir) return path || '';
+    const clean = String(path || '').trim().replace(/\/+$/, '');
+    if (!clean) return '';
+    const idx = clean.lastIndexOf('/');
+    if (idx <= 0) return clean;
+    return clean.slice(0, idx);
+  }
+
+  async function openExternalDirectory(path, isDir, event) {
+    return openExternal(containingDirectory(path, isDir), event);
   }
 
   $: filteredRows = rows
@@ -269,8 +286,11 @@
                     <td>
                       <span class="typeCell">
                         <span class="cellEllipsis" title={`${item.rootKind || ''} / ${item.root || ''}`}>{item.rootKind || ''} / {item.root || ''}</span>
-                        <button class="ghost iconBtn" title="Open externally" onclick={(event) => openExternal(item.path || '', event)}>⤴</button>
-                        <button class="ghost iconBtn" title="Show in Browse" onclick={(event) => showInBrowse(item.path || '', item.isDir, event)}>↗</button>
+                        <button class="ghost iconBtn" title={item.isDir ? 'Open directory externally' : 'Open file externally'} onclick={(event) => openExternal(item.path || '', event)}>{item.isDir ? '🗁' : '▶'}</button>
+                        {#if !item.isDir}
+                          <button class="ghost iconBtn" title="Open containing directory externally" onclick={(event) => openExternalDirectory(item.path || '', item.isDir, event)}>🗁</button>
+                        {/if}
+                        <button class="ghost iconBtn" title="Open directory" onclick={(event) => openDirectory(item.path || '', item.isDir, event)}>↪</button>
                       </span>
                     </td>
                     <td>

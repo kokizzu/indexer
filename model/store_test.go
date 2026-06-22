@@ -241,3 +241,97 @@ func TestSearchPageOrdersByBasenameRelevanceBeforeModifiedTime(t *testing.T) {
 		t.Fatalf("expected ordered search query, got %q", query)
 	}
 }
+
+func TestSearchPageRepeatedTokensRequireRepeatedMatches(t *testing.T) {
+	var seen []string
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			raw, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql := string(raw)
+			seen = append(seen, sql)
+			respBody := []byte("{\"total\":0}\n")
+			if strings.Contains(sql, "SELECT path, base, root, rootKind") {
+				respBody = nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+				Request:    req,
+			}, nil
+		}),
+	}
+	store := NewStore(conf.Config{
+		ClickHouseURL:  "http://127.0.0.1:8127",
+		ClickHouseDB:   "indexer",
+		ClickHouseUser: "userC",
+		ClickHousePass: "passC",
+	}, client)
+	if _, err := store.SearchPage("cha cha cha", "all", 100, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected count and data queries, got %d", len(seen))
+	}
+	query := seen[1]
+	if !strings.Contains(query, "countSubstrings(lowerUTF8(content), 'cha') >= 3") {
+		t.Fatalf("expected repeated-token count in query, got %q", query)
+	}
+	if strings.Contains(query, "hasTokenCaseInsensitive(content, 'cha') OR positionCaseInsensitiveUTF8(lowerUTF8(content), 'cha') > 0") {
+		t.Fatalf("expected repeated-token query not to use single-token clause, got %q", query)
+	}
+	if !strings.Contains(query, "is_dir = 0 AND countSubstrings(lowerUTF8(base), 'cha') >= 3") {
+		t.Fatalf("expected file repeated-token count to use base, got %q", query)
+	}
+	if !strings.Contains(query, "is_dir = 1 AND countSubstrings(lowerUTF8(content), 'cha') >= 3") {
+		t.Fatalf("expected dir repeated-token count to use content, got %q", query)
+	}
+}
+
+func TestSearchPageRepeatedTokensForFileKindUseBasename(t *testing.T) {
+	var seen []string
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			raw, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sql := string(raw)
+			seen = append(seen, sql)
+			respBody := []byte("{\"total\":0}\n")
+			if strings.Contains(sql, "SELECT path, base, root, rootKind") {
+				respBody = nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+				Request:    req,
+			}, nil
+		}),
+	}
+	store := NewStore(conf.Config{
+		ClickHouseURL:  "http://127.0.0.1:8127",
+		ClickHouseDB:   "indexer",
+		ClickHouseUser: "userC",
+		ClickHousePass: "passC",
+	}, client)
+	if _, err := store.SearchPage("cha cha cha", "file", 100, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) < 2 {
+		t.Fatalf("expected count and data queries, got %d", len(seen))
+	}
+	query := seen[1]
+	if !strings.Contains(query, "countSubstrings(lowerUTF8(base), 'cha') >= 3") {
+		t.Fatalf("expected repeated-token file query to use basename, got %q", query)
+	}
+	if strings.Contains(query, "countSubstrings(lowerUTF8(content), 'cha') >= 3") {
+		t.Fatalf("expected file query not to use content for repeated tokens, got %q", query)
+	}
+}
