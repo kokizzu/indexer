@@ -1,6 +1,6 @@
 APP=indexer
 
-.PHONY: web air migrate cli-reindex cli-search svelte-watch svelte-build test build clickhouse gen-views
+.PHONY: web air migrate cli-reindex cli-search svelte-watch svelte-build test build clickhouse gen-views verify-dependency-security
 
 web:
 	go run main.go web
@@ -34,3 +34,6 @@ clickhouse:
 
 gen-views:
 	./gen-views.sh
+
+verify-dependency-security:
+	bash ./scripts/verify-dependency-security.sh

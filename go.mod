@@ -78,3 +78,5 @@ require (
 )
 
 replace github.com/kokizzu/gotro => ../gotro
+
+exclude github.com/docker/docker v27.1.1+incompatible
