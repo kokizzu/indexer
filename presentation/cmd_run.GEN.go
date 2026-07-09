@@ -146,6 +146,30 @@ func cmdRun(d *domain.Domain, stdout *bytes.Buffer, stderr *bytes.Buffer, action
 		out, rc := execManageHistory(&in, d)
 		in.RequestCommon.ToCli(stdout, stderr, out, rc)
 		return statusCodeToExit(rc.StatusCode)
+	case domain.BackupConfigAction:
+		in := domain.BackupConfigIn{}
+		if !in.RequestCommon.FromCli(action, payload, &in) {
+			return 1
+		}
+		out := execBackupConfig(in, d)
+		in.RequestCommon.ToCli(stdout, stderr, out, out.ResponseCommon)
+		return statusCodeToExit(out.ResponseCommon.StatusCode)
+	case domain.BackupEstimateAction:
+		in := domain.BackupEstimateIn{}
+		if !in.RequestCommon.FromCli(action, payload, &in) {
+			return 1
+		}
+		out := execBackupEstimate(in, d)
+		in.RequestCommon.ToCli(stdout, stderr, out, out.ResponseCommon)
+		return statusCodeToExit(out.ResponseCommon.StatusCode)
+	case domain.BackupRunAction:
+		in := domain.BackupRunIn{}
+		if !in.RequestCommon.FromCli(action, payload, &in) {
+			return 1
+		}
+		out := execBackupRun(in, d)
+		in.RequestCommon.ToCli(stdout, stderr, out, out.ResponseCommon)
+		return statusCodeToExit(out.ResponseCommon.StatusCode)
 	default:
 		return 2
 	}

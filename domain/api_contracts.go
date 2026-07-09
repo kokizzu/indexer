@@ -96,6 +96,19 @@ type ManageHistoryIn struct {
 	Limit int `json:"limit" form:"limit" query:"limit"`
 }
 
+type BackupEstimateIn struct {
+	RequestCommon
+	Limit int `json:"limit" form:"limit" query:"limit"`
+}
+
+type BackupConfigIn struct {
+	RequestCommon
+}
+
+type BackupRunIn struct {
+	RequestCommon
+}
+
 type StatusOut struct {
 	ResponseCommon
 	Status
@@ -134,6 +147,16 @@ type ActionOut struct {
 type ManageStatusOut struct {
 	ResponseCommon
 	ManageQueueStatus
+}
+
+type BackupEstimateOut struct {
+	ResponseCommon
+	BackupEstimate
+}
+
+type BackupConfigOut struct {
+	ResponseCommon
+	BackupConfig
 }
 
 func (in ReindexIn) PriorityValue() string {
@@ -185,6 +208,16 @@ func (in ManageQueueIn) ActionValue() string {
 func (in ManageHistoryIn) LimitValue() int {
 	if in.Limit <= 0 {
 		return 100
+	}
+	return in.Limit
+}
+
+func (in BackupEstimateIn) LimitValue() int {
+	if in.Limit <= 0 {
+		return 500
+	}
+	if in.Limit > 5000 {
+		return 5000
 	}
 	return in.Limit
 }

@@ -1329,11 +1329,11 @@ ${component_stack}
     var effects = collected_effects = [];
     var render_effects = [];
     var updates = legacy_updates = [];
-    for (const root14 of roots) {
+    for (const root15 of roots) {
       try {
-        __privateMethod(this, _Batch_instances, traverse_fn).call(this, root14, effects, render_effects);
+        __privateMethod(this, _Batch_instances, traverse_fn).call(this, root15, effects, render_effects);
       } catch (e) {
-        reset_all(root14);
+        reset_all(root15);
         throw e;
       }
     }
@@ -1390,7 +1390,7 @@ ${component_stack}
         __privateMethod(this, _Batch_instances, link_fn).call(this);
       }
       const batch2 = next_batch;
-      __privateGet(batch2, _roots).push(...__privateGet(this, _roots).filter((r) => !__privateGet(batch2, _roots).includes(r)));
+      __privateGet(batch2, _roots).push(...__privateGet(this, _roots).filter((r2) => !__privateGet(batch2, _roots).includes(r2)));
     }
     if (next_batch !== null) {
       __privateMethod(_c = next_batch, _Batch_instances, process_fn).call(_c);
@@ -1403,9 +1403,9 @@ ${component_stack}
    * @param {Effect[]} effects
    * @param {Effect[]} render_effects
    */
-  traverse_fn = function(root14, effects, render_effects) {
-    root14.f ^= CLEAN;
-    var effect2 = root14.first;
+  traverse_fn = function(root15, effects, render_effects) {
+    root15.f ^= CLEAN;
+    var effect2 = root15.first;
     while (effect2 !== null) {
       var flags2 = effect2.f;
       var is_branch = (flags2 & (BRANCH_EFFECT | ROOT_EFFECT)) !== 0;
@@ -1581,8 +1581,8 @@ ${component_stack}
         }
         if (__privateGet(batch, _roots).length > 0 && !__privateGet(batch, _decrement_queued)) {
           batch.apply();
-          for (var root14 of __privateGet(batch, _roots)) {
-            __privateMethod(_a2 = batch, _Batch_instances, traverse_fn).call(_a2, root14, [], []);
+          for (var root15 of __privateGet(batch, _roots)) {
+            __privateMethod(_a2 = batch, _Batch_instances, traverse_fn).call(_a2, root15, [], []);
           }
           __privateSet(batch, _roots, []);
         }
@@ -3826,7 +3826,7 @@ ${component_stack}
     }
     return false;
   }
-  function schedule_possible_effect_self_invalidation(signal, effect2, root14 = true) {
+  function schedule_possible_effect_self_invalidation(signal, effect2, root15 = true) {
     var reactions = signal.reactions;
     if (reactions === null) return;
     if (!async_mode_flag && current_sources !== null && includes.call(current_sources, signal)) {
@@ -3842,7 +3842,7 @@ ${component_stack}
           false
         );
       } else if (effect2 === reaction) {
-        if (root14) {
+        if (root15) {
           set_signal_status(reaction, DIRTY);
         } else if ((reaction.f & CLEAN) !== 0) {
           set_signal_status(reaction, MAYBE_DIRTY);
@@ -5601,7 +5601,29 @@ ${component_stack}
     });
   }
 
+  // node_modules/clsx/dist/clsx.mjs
+  function r(e) {
+    var t, f, n = "";
+    if ("string" == typeof e || "number" == typeof e) n += e;
+    else if ("object" == typeof e) if (Array.isArray(e)) {
+      var o = e.length;
+      for (t = 0; t < o; t++) e[t] && (f = r(e[t])) && (n && (n += " "), n += f);
+    } else for (f in e) e[f] && (n && (n += " "), n += f);
+    return n;
+  }
+  function clsx() {
+    for (var e, t, f = 0, n = "", o = arguments.length; f < o; f++) (e = arguments[f]) && (t = r(e)) && (n && (n += " "), n += t);
+    return n;
+  }
+
   // node_modules/svelte/src/internal/shared/attributes.js
+  function clsx2(value) {
+    if (typeof value === "object") {
+      return clsx(value);
+    } else {
+      return value ?? "";
+    }
+  }
   var whitespace = [..." 	\n\r\f\xA0\v\uFEFF"];
   function to_class(value, hash2, directives) {
     var classname = value == null ? "" : "" + value;
@@ -6621,7 +6643,8 @@ ${component_stack}
     { id: "search", label: "Search" },
     { id: "duplicates", label: "Duplicates" },
     { id: "manage", label: "Manage" },
-    { id: "queue", label: "Queue" }
+    { id: "queue", label: "Queue" },
+    { id: "backup", label: "Backup" }
   ];
   var tabs_default = tabs;
 
@@ -6884,7 +6907,10 @@ ${component_stack}
     manageCancel: "/api/manage/cancel",
     manageRetry: "/api/manage/retry",
     manageStatus: "/api/manage/status",
-    manageHistory: "/api/manage/history"
+    manageHistory: "/api/manage/history",
+    backupConfig: "/api/backup/config",
+    backupEstimate: "/api/backup/estimate",
+    backupRun: "/api/backup/run"
   };
   var jsApi_GEN_default = IndexerApi;
   (function(global) {
@@ -7287,7 +7313,7 @@ ${component_stack}
       window.removeEventListener("indexer:browseCommand", handleBrowseCommand);
     });
     legacy_pre_effect(() => get2(roots), () => {
-      set(maxRootBytes, get2(roots).reduce((mx, root14) => Math.max(mx, Number(root14.size || 0)), 0));
+      set(maxRootBytes, get2(roots).reduce((mx, root15) => Math.max(mx, Number(root15.size || 0)), 0));
     });
     legacy_pre_effect(() => (get2(currentRows), get2(filterText)), () => {
       set(filteredRows, get2(currentRows).filter((item) => {
@@ -7328,10 +7354,10 @@ ${component_stack}
       var alternate = ($$anchor2) => {
         var fragment = comment();
         var node_1 = first_child(fragment);
-        each(node_1, 1, () => get2(roots), index, ($$anchor3, root14) => {
+        each(node_1, 1, () => get2(roots), index, ($$anchor3, root15) => {
           BrowseTreeNode($$anchor3, {
             get item() {
-              return get2(root14);
+              return get2(root15);
             },
             depth: 0,
             get expanded() {
@@ -7755,15 +7781,15 @@ ${component_stack}
       if (!message) return;
       showToast(String(message));
     }
-    function rootLabel(root14) {
-      if (!root14) return "";
-      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    function rootLabel(root15) {
+      if (!root15) return "";
+      return root15.base && root15.base !== root15.path ? `${root15.base} \xB7 ${root15.path}` : root15.path || "";
     }
     function progressPct(snapshot2) {
       const mounts = snapshot2?.mounts || [];
       const allRoots = mounts.flatMap((mount2) => mount2.roots || []);
       if (allRoots.length) {
-        return allRoots.reduce((acc, root14) => acc + Number(root14.progressPct || 0), 0) / allRoots.length;
+        return allRoots.reduce((acc, root15) => acc + Number(root15.progressPct || 0), 0) / allRoots.length;
       }
       return Number(snapshot2?.progressPct || 0);
     }
@@ -7868,7 +7894,7 @@ ${component_stack}
     var text_1 = child(button, true);
     reset(button);
     var select = sibling(button, 2);
-    each(select, 5, () => get2(availableRoots), index, ($$anchor2, root14) => {
+    each(select, 5, () => get2(availableRoots), index, ($$anchor2, root15) => {
       var option = root_23();
       var text_2 = child(option, true);
       reset(option);
@@ -7876,11 +7902,11 @@ ${component_stack}
       template_effect(
         ($0) => {
           set_text(text_2, $0);
-          if (option_value !== (option_value = (get2(root14), untrack(() => get2(root14).path)))) {
-            option.value = (option.__value = (get2(root14), untrack(() => get2(root14).path))) ?? "";
+          if (option_value !== (option_value = (get2(root15), untrack(() => get2(root15).path)))) {
+            option.value = (option.__value = (get2(root15), untrack(() => get2(root15).path))) ?? "";
           }
         },
-        [() => (get2(root14), untrack(() => rootLabel(get2(root14))))]
+        [() => (get2(root15), untrack(() => rootLabel(get2(root15))))]
       );
       append($$anchor2, option);
     });
@@ -7986,7 +8012,7 @@ ${component_stack}
           var div_28 = child(div_27);
           reset(div_27);
           var node_3 = sibling(div_27, 2);
-          each(node_3, 1, () => (get2(mount2), untrack(() => get2(mount2).roots || [])), index, ($$anchor4, root14) => {
+          each(node_3, 1, () => (get2(mount2), untrack(() => get2(mount2).roots || [])), index, ($$anchor4, root15) => {
             var div_29 = root_92();
             var div_30 = child(div_29);
             var span_1 = child(div_30);
@@ -7996,9 +8022,9 @@ ${component_stack}
             reset(div_30);
             var div_31 = sibling(div_30, 2);
             var node_4 = child(div_31);
-            html(node_4, () => (deep_read_state(formatBytesHtml), get2(root14), untrack(() => formatBytesHtml(get2(root14).processedBytes || 0))));
+            html(node_4, () => (deep_read_state(formatBytesHtml), get2(root15), untrack(() => formatBytesHtml(get2(root15).processedBytes || 0))));
             var node_5 = sibling(node_4, 2);
-            html(node_5, () => (deep_read_state(formatBytesHtml), get2(root14), untrack(() => formatBytesHtml(get2(root14).totalBytes || 0))));
+            html(node_5, () => (deep_read_state(formatBytesHtml), get2(root15), untrack(() => formatBytesHtml(get2(root15).totalBytes || 0))));
             reset(div_31);
             var div_32 = sibling(div_31, 2);
             var div_33 = child(div_32);
@@ -8006,12 +8032,12 @@ ${component_stack}
             reset(div_29);
             template_effect(
               ($0) => {
-                set_text(text_13, (get2(root14), untrack(() => get2(root14).kind || "")));
-                set_text(text_14, (get2(root14), untrack(() => get2(root14).path || "")));
+                set_text(text_13, (get2(root15), untrack(() => get2(root15).kind || "")));
+                set_text(text_14, (get2(root15), untrack(() => get2(root15).path || "")));
                 set_style(div_33, $0);
               },
               [
-                () => (get2(root14), untrack(() => `width:${Number(get2(root14).progressPct || 0).toFixed(2)}%`))
+                () => (get2(root15), untrack(() => `width:${Number(get2(root15).progressPct || 0).toFixed(2)}%`))
               ]
             );
             append($$anchor4, div_29);
@@ -8222,9 +8248,9 @@ ${component_stack}
     function statusLabel(tab, item) {
       return item?.statusLabel || (tab === "delete" ? "TARGET" : "");
     }
-    function rootLabel(root14) {
-      if (!root14) return "";
-      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    function rootLabel(root15) {
+      if (!root15) return "";
+      return root15.base && root15.base !== root15.path ? `${root15.base} \xB7 ${root15.path}` : root15.path || "";
     }
     function showInBrowse(path, isDir, event2) {
       if (event2) {
@@ -8245,7 +8271,7 @@ ${component_stack}
     reset(div_1);
     var div_3 = sibling(div_1, 2);
     var select = sibling(child(div_3), 2);
-    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root14) => {
+    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root15) => {
       var option = root_24();
       var text_2 = child(option, true);
       reset(option);
@@ -8253,11 +8279,11 @@ ${component_stack}
       template_effect(
         ($0) => {
           set_text(text_2, $0);
-          if (option_value !== (option_value = get2(root14).path)) {
-            option.value = (option.__value = get2(root14).path) ?? "";
+          if (option_value !== (option_value = get2(root15).path)) {
+            option.value = (option.__value = get2(root15).path) ?? "";
           }
         },
-        [() => rootLabel(get2(root14))]
+        [() => rootLabel(get2(root15))]
       );
       append($$anchor2, option);
     });
@@ -8468,15 +8494,15 @@ ${component_stack}
         cleanupBrowse();
       };
     });
-    function rootLabel(root14) {
-      if (!root14) return "";
-      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    function rootLabel(root15) {
+      if (!root15) return "";
+      return root15.base && root15.base !== root15.path ? `${root15.base} \xB7 ${root15.path}` : root15.path || "";
     }
     init();
     var fragment = root_110();
     var div = sibling(first_child(fragment), 2);
     var select = sibling(child(div), 2);
-    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root14) => {
+    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root15) => {
       var option = root_25();
       var text2 = child(option, true);
       reset(option);
@@ -8484,11 +8510,11 @@ ${component_stack}
       template_effect(
         ($0) => {
           set_text(text2, $0);
-          if (option_value !== (option_value = get2(root14).path)) {
-            option.value = (option.__value = get2(root14).path) ?? "";
+          if (option_value !== (option_value = get2(root15).path)) {
+            option.value = (option.__value = get2(root15).path) ?? "";
           }
         },
-        [() => rootLabel(get2(root14))]
+        [() => rootLabel(get2(root15))]
       );
       append($$anchor2, option);
     });
@@ -8648,15 +8674,15 @@ ${component_stack}
         showToast("Copy failed: " + err);
       }
     }
-    function rootLabel(root14) {
-      if (!root14) return "";
-      return root14.base && root14.base !== root14.path ? `${root14.base} \xB7 ${root14.path}` : root14.path || "";
+    function rootLabel(root15) {
+      if (!root15) return "";
+      return root15.base && root15.base !== root15.path ? `${root15.base} \xB7 ${root15.path}` : root15.path || "";
     }
     init();
     var fragment = root_111();
     var div = sibling(first_child(fragment), 2);
     var select = sibling(child(div), 2);
-    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root14) => {
+    each(select, 5, () => $browseBridgeState().roots, index, ($$anchor2, root15) => {
       var option = root_26();
       var text2 = child(option, true);
       reset(option);
@@ -8664,11 +8690,11 @@ ${component_stack}
       template_effect(
         ($0) => {
           set_text(text2, $0);
-          if (option_value !== (option_value = get2(root14).path)) {
-            option.value = (option.__value = get2(root14).path) ?? "";
+          if (option_value !== (option_value = get2(root15).path)) {
+            option.value = (option.__value = get2(root15).path) ?? "";
           }
         },
-        [() => rootLabel(get2(root14))]
+        [() => rootLabel(get2(root15))]
       );
       append($$anchor2, option);
     });
@@ -9580,7 +9606,7 @@ ${component_stack}
   var root_65 = from_html(`<button class="ghost iconBtn" title="Open containing directory externally">\u{1F5C1}</button>`);
   var root_74 = from_html(`<span class="fdFile tooltipish" title="descendant files"> </span> <span class="fdDir tooltipish" title="descendant directories"> </span>`, 1);
   var root_84 = from_html(`<span class="fdFile">1 F</span>`);
-  var root_55 = from_html(`<tr><td><span> </span></td><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><button class="ghost iconBtn">\u29C9</button></span></div></td><td><span class="typeCell"><span class="cellEllipsis"> </span> <button class="ghost iconBtn"> </button> <!> <button class="ghost iconBtn" title="Open directory">\u21AA</button></span></td><td><!></td><td></td><td class="mono"></td></tr>`);
+  var root_55 = from_html(`<tr><td><span> </span></td><td><div class="nameCell"><span class="nameLabel cellEllipsis"> </span> <span class="rowActions"><button class="ghost iconBtn">\u29C9</button> <button class="ghost iconBtn" title="Rename">\u270E</button></span></div></td><td><span class="typeCell"><span class="cellEllipsis"> </span> <button class="ghost iconBtn"> </button> <!> <button class="ghost iconBtn" title="Open directory">\u21AA</button></span></td><td><!></td><td></td><td class="mono"></td></tr>`);
   var root11 = from_html(`<section id="tab-search"><div class="card"><div class="cardInner"><div class="row singleRow"><input placeholder="Search directory names and video filenames"/> <div class="checkRow"><label class="checkInline"><input type="checkbox"/> directories</label> <label class="checkInline"><input type="checkbox"/> video files</label></div> <button class="secondary"> </button></div> <div class="resultPane" style="margin-top:16px"><div class="resultHeader"><div class="toolbarRow"><div class="toolbarGroup"><h2>Search Results</h2> <input placeholder="Filter results" style="max-width:180px"/> <div class="toolbarMeta"> </div></div> <div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide">\u25F7</button> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div> <div class="resultScroll"><table style="table-layout:fixed"><thead><tr></tr></thead><tbody><!></tbody></table></div> <div class="toolbarRow" style="margin-top:12px"><div class="toolbarGroup right"><div class="toolbarMeta"> </div> <button class="ghost iconBtn iconBtnWide" title="Previous page">\u2039</button> <button class="ghost iconBtn iconBtnWide" title="Next page">\u203A</button></div></div></div></div></div></section>`);
   function SearchTabPane($$anchor, $$props) {
     push($$props, false);
@@ -9672,8 +9698,12 @@ ${component_stack}
       if (av > bv) return sortDesc ? -1 : 1;
       return String(a.base || "").localeCompare(String(b.base || ""));
     }
-    async function getJSON(url) {
-      const res = await fetch(url);
+    function needsPasswordPrompt() {
+      const host = String(window.location.hostname || "").trim().toLowerCase();
+      return !(host === "localhost" || host === "127.0.0.1" || host === "::1");
+    }
+    async function getJSON(url, options = {}) {
+      const res = await fetch(url, options);
       const text2 = await res.text();
       if (!res.ok) {
         throw new Error(text2 || "HTTP " + res.status);
@@ -9749,6 +9779,38 @@ ${component_stack}
         toast("Copied path");
       } catch (err) {
         toast("Copy failed: " + err);
+      }
+    }
+    async function renameFromSearch(path, event2) {
+      if (event2) {
+        event2.preventDefault();
+        event2.stopPropagation();
+      }
+      const oldPath = String(path || "").trim();
+      if (!oldPath) {
+        toast("Rename path is required");
+        return;
+      }
+      const nextPath = window.prompt("Rename to path", oldPath);
+      if (!nextPath) return;
+      let password = "";
+      if (needsPasswordPrompt()) {
+        password = window.prompt("Manage password?") || "";
+        if (!password) {
+          toast("Password is required");
+          return;
+        }
+      }
+      try {
+        const res = await getJSON(apiUrl("rename", "/api/rename"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password, oldPath, newPath: nextPath, confirm: "CONFIRM" })
+        });
+        toast(res?.message || "Renamed");
+        await runSearch2(false);
+      } catch (err) {
+        toast(String(err?.message || err));
       }
     }
     async function openExternal(path, event2) {
@@ -9925,6 +9987,7 @@ ${component_stack}
           reset(span_1);
           var span_2 = sibling(span_1, 2);
           var button_4 = child(span_2);
+          var button_5 = sibling(button_4, 2);
           reset(span_2);
           reset(div_12);
           reset(td_2);
@@ -9933,21 +9996,21 @@ ${component_stack}
           var span_4 = child(span_3);
           var text_8 = child(span_4);
           reset(span_4);
-          var button_5 = sibling(span_4, 2);
-          var text_9 = child(button_5, true);
-          reset(button_5);
-          var node_2 = sibling(button_5, 2);
+          var button_6 = sibling(span_4, 2);
+          var text_9 = child(button_6, true);
+          reset(button_6);
+          var node_2 = sibling(button_6, 2);
           {
             var consequent_2 = ($$anchor4) => {
-              var button_6 = root_65();
-              delegated("click", button_6, (event2) => openExternalDirectory(get2(item).path || "", get2(item).isDir, event2));
-              append($$anchor4, button_6);
+              var button_7 = root_65();
+              delegated("click", button_7, (event2) => openExternalDirectory(get2(item).path || "", get2(item).isDir, event2));
+              append($$anchor4, button_7);
             };
             if_block(node_2, ($$render) => {
               if (get2(item), untrack(() => !get2(item).isDir)) $$render(consequent_2);
             });
           }
-          var button_7 = sibling(node_2, 2);
+          var button_8 = sibling(node_2, 2);
           reset(span_3);
           reset(td_3);
           var td_4 = sibling(td_3);
@@ -10000,12 +10063,13 @@ ${component_stack}
             set_attribute2(button_4, "title", (get2(item), untrack(() => get2(item).path || "")));
             set_attribute2(span_4, "title", (get2(item), untrack(() => `${get2(item).rootKind || ""} / ${get2(item).root || ""}`)));
             set_text(text_8, `${(get2(item), untrack(() => get2(item).rootKind || "")) ?? ""} / ${(get2(item), untrack(() => get2(item).root || "")) ?? ""}`);
-            set_attribute2(button_5, "title", (get2(item), untrack(() => get2(item).isDir ? "Open directory externally" : "Open file externally")));
+            set_attribute2(button_6, "title", (get2(item), untrack(() => get2(item).isDir ? "Open directory externally" : "Open file externally")));
             set_text(text_9, (get2(item), untrack(() => get2(item).isDir ? "\u{1F5C1}" : "\u25B6")));
           });
           delegated("click", button_4, (event2) => copyPath(get2(item).path || "", event2));
-          delegated("click", button_5, (event2) => openExternal(get2(item).path || "", event2));
-          delegated("click", button_7, (event2) => openDirectory(get2(item).path || "", get2(item).isDir, event2));
+          delegated("click", button_5, (event2) => renameFromSearch(get2(item).path || "", event2));
+          delegated("click", button_6, (event2) => openExternal(get2(item).path || "", event2));
+          delegated("click", button_8, (event2) => openDirectory(get2(item).path || "", get2(item).isDir, event2));
           append($$anchor3, tr_3);
         });
         append($$anchor2, fragment);
@@ -10024,8 +10088,8 @@ ${component_stack}
     var div_15 = child(div_14);
     var text_12 = child(div_15, true);
     reset(div_15);
-    var button_8 = sibling(div_15, 2);
-    var button_9 = sibling(button_8, 2);
+    var button_9 = sibling(div_15, 2);
+    var button_10 = sibling(button_9, 2);
     reset(div_14);
     reset(div_13);
     reset(div_4);
@@ -10045,8 +10109,8 @@ ${component_stack}
         button_2.disabled = get2(page) <= 0;
         button_3.disabled = get2(page) >= get2(totalPages) - 1;
         set_text(text_12, get2(pageInfo));
-        button_8.disabled = get2(page) <= 0;
-        button_9.disabled = get2(page) >= get2(totalPages) - 1;
+        button_9.disabled = get2(page) <= 0;
+        button_10.disabled = get2(page) >= get2(totalPages) - 1;
       },
       [
         () => (get2(relativeTime), untrack(() => searchRelativeTimeTitle2(get2(relativeTime))))
@@ -10065,13 +10129,544 @@ ${component_stack}
     delegated("click", button_1, () => set(relativeTime, !get2(relativeTime)));
     delegated("click", button_2, () => changePage(-1));
     delegated("click", button_3, () => changePage(1));
-    delegated("click", button_8, () => changePage(-1));
-    delegated("click", button_9, () => changePage(1));
+    delegated("click", button_9, () => changePage(-1));
+    delegated("click", button_10, () => changePage(1));
     append($$anchor, section);
     pop();
     $$cleanup();
   }
   delegate(["keydown", "change", "click"]);
+
+  // _components/BackupTabPane.svelte
+  var root_115 = from_html(`<div class="previewBox mono" style="min-height:auto; margin-top:12px"> </div>`);
+  var root_28 = from_html(`<div class="previewBox mono" style="min-height:auto; margin-top:12px"> </div>`);
+  var root_44 = from_html(`<div> </div>`);
+  var root_38 = from_html(`<div class="previewBox mono" style="min-height:auto; margin-top:12px"></div>`);
+  var root_56 = from_html(`<div class="previewBox mono" style="min-height:auto; margin-top:12px"><div class="metricLabel"> </div> <div> </div></div>`);
+  var root_66 = from_html(`<div class="previewBox mono" style="min-height:auto; margin-top:12px"> </div>`);
+  var root_103 = from_html(`<div> </div>`);
+  var root_122 = from_html(`<div> </div>`);
+  var root_116 = from_html(`<div class="resultHeader" style="margin-top:16px"><h2>Exclude Sources</h2> <div class="mono" style="color:var(--muted)"> </div></div> <div class="previewBox mono"></div>`, 1);
+  var root_132 = from_html(`<tr><td colspan="4" class="empty">Estimating...</td></tr>`);
+  var root_142 = from_html(`<tr><td colspan="4" class="empty">No backup estimate rows</td></tr>`);
+  var root_162 = from_html(`<tr><td><span> </span></td><td></td><td></td><td><span class="cellEllipsis mono"> </span></td></tr>`);
+  var root12 = from_html(`<section id="tab-backup"><div class="card"><div class="cardInner"><div class="resultHeader"><h2>Backup</h2> <div class="row" style="margin:0"><button> </button> <button class="secondary"> </button></div></div> <div class="heroMeta"><div class="metric"><div class="metricLabel">Target</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Process User</div> <div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Current Backup Size</div><div class="metricValue"></div></div> <div class="metric"><div class="metricLabel">Source Size</div><div class="metricValue"></div></div> <div class="metric"><div class="metricLabel">Estimated Increment</div><div class="metricValue"></div></div> <div class="metric"><div class="metricLabel">Estimate Time</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Last Estimate At</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Last Estimate Duration</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Last Successful Backup At</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Last Successful Duration</div><div class="metricValue mono"> </div></div> <div class="metric"><div class="metricLabel">Last Scheduled Attempt At</div><div class="metricValue mono"> </div></div></div> <!> <!> <!> <!> <!></div></div> <div class="split backupSplit" style="margin-top:16px"><div class="card"><div class="cardInner"><div class="resultHeader"><h2>Backup Sources</h2> <div class="mono" style="color:var(--muted)"> </div></div> <div class="previewBox mono"><!></div> <!></div></div> <div class="card"><div class="cardInner"><div class="resultHeader"><h2>Largest Items</h2> <div class="mono" style="color:var(--muted)"> </div></div> <div class="resultScroll" style="max-height:620px"><table><thead><tr><th style="width:12%">Kind</th><th style="width:16%">Size</th><th style="width:16%">Increment</th><th style="width:56%">Source</th></tr></thead><tbody><!></tbody></table></div></div></div></div></section>`);
+  function BackupTabPane($$anchor, $$props) {
+    push($$props, false);
+    const $activeTab = () => store_get(activeTab, "$activeTab", $$stores);
+    const [$$stores, $$cleanup] = setup_stores();
+    const estimateStatus = mutable_source();
+    const configStatus = mutable_source();
+    const backupStatus = mutable_source();
+    const currentBackupSize = mutable_source();
+    const backupError = mutable_source();
+    const backupErrorTitle = mutable_source();
+    const backupErrorPreview = mutable_source();
+    let estimate = mutable_source({});
+    let config = mutable_source({});
+    let loadingConfig = mutable_source(true);
+    let loading = mutable_source(false);
+    let running = mutable_source(false);
+    let error = mutable_source("");
+    let resultText = mutable_source("");
+    let estimateElapsedSeconds = mutable_source(0);
+    let estimateTimer = null;
+    let relativeNow = Date.now();
+    let relativeTimer = null;
+    function apiUrl(key2, fallback2) {
+      return jsApi_GEN_default[key2] || fallback2;
+    }
+    function toast(message) {
+      if (!message) return;
+      showToast(String(message));
+    }
+    async function getJSON(url, options = {}) {
+      const res = await fetch(url, options);
+      const text2 = await res.text();
+      if (!res.ok) {
+        throw new Error(text2 || "HTTP " + res.status);
+      }
+      return text2 ? JSON.parse(text2) : {};
+    }
+    async function refreshEstimate() {
+      set(loading, true);
+      set(estimateElapsedSeconds, 0);
+      const started = Date.now();
+      if (estimateTimer) window.clearInterval(estimateTimer);
+      estimateTimer = window.setInterval(
+        () => {
+          set(estimateElapsedSeconds, (Date.now() - started) / 1e3);
+        },
+        250
+      );
+      try {
+        const url = new URL(apiUrl("backupEstimate", "/api/backup/estimate"), window.location.origin);
+        url.searchParams.set("limit", "500");
+        set(estimate, await getJSON(url.toString()));
+        set(estimateElapsedSeconds, Number(get2(estimate)?.elapsedSeconds || (Date.now() - started) / 1e3));
+        if (get2(estimate)?.sources?.length || get2(estimate)?.target) {
+          set(config, {
+            sources: get2(estimate).sources || get2(config).sources || [],
+            target: get2(estimate).target || get2(config).target || "",
+            backupStatus: get2(estimate).backupStatus || get2(estimate).status || get2(config).backupStatus || get2(config).status || {}
+          });
+        }
+        set(error, "");
+      } catch (err) {
+        set(error, String(err?.message || err));
+      } finally {
+        if (estimateTimer) {
+          window.clearInterval(estimateTimer);
+          estimateTimer = null;
+        }
+        set(loading, false);
+      }
+    }
+    async function loadConfig() {
+      set(loadingConfig, true);
+      try {
+        set(config, await getJSON(apiUrl("backupConfig", "/api/backup/config")));
+        set(error, "");
+      } catch (err) {
+        set(error, String(err?.message || err));
+        set(config, {});
+      } finally {
+        set(loadingConfig, false);
+      }
+    }
+    async function runBackup() {
+      set(running, true);
+      set(resultText, "");
+      try {
+        const res = await getJSON(apiUrl("backupRun", "/api/backup/run"), { method: "POST" });
+        set(resultText, res?.message || "backup completed");
+        toast(get2(resultText));
+        await loadConfig();
+        await refreshEstimate();
+      } catch (err) {
+        set(resultText, String(err?.message || err));
+        toast(get2(resultText));
+      } finally {
+        set(running, false);
+      }
+    }
+    function rowClass(entry) {
+      if (!entry?.existsInTarget) return "pill pillFile";
+      if (entry?.incrementBytes > 0) return "pill";
+      return "pill pillDir";
+    }
+    function agoSuffix(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      const time = date.getTime();
+      if (!Number.isFinite(time)) return "";
+      const totalMinutes = Math.max(0, Math.floor((relativeNow - time) / 6e4));
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor(totalMinutes % 1440 / 60);
+      const minutes = totalMinutes % 60;
+      const parts = [];
+      if (days) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+      if (hours) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+      if (minutes) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+      if (!parts.length) return "";
+      return ` (${parts.join(" ")} ago)`;
+    }
+    function formatTimestamp(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      const time = date.getTime();
+      if (!Number.isFinite(time)) return value;
+      const pad = (item) => String(item).padStart(2, "0");
+      return [
+        date.getFullYear(),
+        pad(date.getMonth() + 1),
+        pad(date.getDate())
+      ].join("-") + " " + [
+        pad(date.getHours()),
+        pad(date.getMinutes()),
+        pad(date.getSeconds())
+      ].join(":");
+    }
+    onMount(() => {
+      loadConfig();
+      relativeTimer = window.setInterval(
+        () => {
+          relativeNow = Date.now();
+        },
+        6e4
+      );
+    });
+    onDestroy(() => {
+      if (estimateTimer) window.clearInterval(estimateTimer);
+      if (relativeTimer) window.clearInterval(relativeTimer);
+    });
+    legacy_pre_effect(() => get2(estimate), () => {
+      set(estimateStatus, get2(estimate)?.backupStatus || get2(estimate)?.status || {});
+    });
+    legacy_pre_effect(() => get2(config), () => {
+      set(configStatus, get2(config)?.backupStatus || get2(config)?.status || {});
+    });
+    legacy_pre_effect(() => (get2(estimateStatus), get2(configStatus)), () => {
+      set(backupStatus, Object.keys(get2(estimateStatus)).length ? get2(estimateStatus) : get2(configStatus));
+    });
+    legacy_pre_effect(() => (get2(estimate), get2(backupStatus)), () => {
+      set(currentBackupSize, get2(estimate)?.currentBackupSize ?? get2(backupStatus)?.currentBackupSize ?? 0);
+    });
+    legacy_pre_effect(() => get2(backupStatus), () => {
+      set(backupError, get2(backupStatus)?.lastScheduledBackupError || get2(backupStatus)?.lastBackupError || "");
+    });
+    legacy_pre_effect(() => get2(backupStatus), () => {
+      set(backupErrorTitle, get2(backupStatus)?.lastScheduledBackupError ? "Last Scheduled Failure" : "Last Backup Failure");
+    });
+    legacy_pre_effect(() => get2(backupError), () => {
+      set(backupErrorPreview, get2(backupError).length > 1200 ? get2(backupError).slice(0, 1200) + "\n..." : get2(backupError));
+    });
+    legacy_pre_effect_reset();
+    init();
+    var section = root12();
+    let classes;
+    var div = child(section);
+    var div_1 = child(div);
+    var div_2 = child(div_1);
+    var div_3 = sibling(child(div_2), 2);
+    var button = child(div_3);
+    var text_1 = child(button, true);
+    reset(button);
+    var button_1 = sibling(button, 2);
+    var text_2 = child(button_1, true);
+    reset(button_1);
+    reset(div_3);
+    reset(div_2);
+    var div_4 = sibling(div_2, 2);
+    var div_5 = child(div_4);
+    var div_6 = sibling(child(div_5));
+    var text_3 = child(div_6, true);
+    reset(div_6);
+    reset(div_5);
+    var div_7 = sibling(div_5, 2);
+    var div_8 = sibling(child(div_7), 2);
+    var text_4 = child(div_8);
+    reset(div_8);
+    reset(div_7);
+    var div_9 = sibling(div_7, 2);
+    var div_10 = sibling(child(div_9));
+    html(
+      div_10,
+      () => (deep_read_state(formatBytesHtml), get2(currentBackupSize), untrack(() => formatBytesHtml(get2(currentBackupSize) || 0))),
+      true
+    );
+    reset(div_10);
+    reset(div_9);
+    var div_11 = sibling(div_9, 2);
+    var div_12 = sibling(child(div_11));
+    html(
+      div_12,
+      () => (deep_read_state(formatBytesHtml), get2(estimate), untrack(() => formatBytesHtml(get2(estimate)?.sourceSize || 0))),
+      true
+    );
+    reset(div_12);
+    reset(div_11);
+    var div_13 = sibling(div_11, 2);
+    var div_14 = sibling(child(div_13));
+    html(
+      div_14,
+      () => (deep_read_state(formatBytesHtml), get2(estimate), untrack(() => formatBytesHtml(get2(estimate)?.estimatedIncrement || 0))),
+      true
+    );
+    reset(div_14);
+    reset(div_13);
+    var div_15 = sibling(div_13, 2);
+    var div_16 = sibling(child(div_15));
+    var text_5 = child(div_16, true);
+    reset(div_16);
+    reset(div_15);
+    var div_17 = sibling(div_15, 2);
+    var div_18 = sibling(child(div_17));
+    var text_6 = child(div_18, true);
+    reset(div_18);
+    reset(div_17);
+    var div_19 = sibling(div_17, 2);
+    var div_20 = sibling(child(div_19));
+    var text_7 = child(div_20, true);
+    reset(div_20);
+    reset(div_19);
+    var div_21 = sibling(div_19, 2);
+    var div_22 = sibling(child(div_21));
+    var text_8 = child(div_22, true);
+    reset(div_22);
+    reset(div_21);
+    var div_23 = sibling(div_21, 2);
+    var div_24 = sibling(child(div_23));
+    var text_9 = child(div_24, true);
+    reset(div_24);
+    reset(div_23);
+    var div_25 = sibling(div_23, 2);
+    var div_26 = sibling(child(div_25));
+    var text_10 = child(div_26, true);
+    reset(div_26);
+    reset(div_25);
+    reset(div_4);
+    var node = sibling(div_4, 2);
+    {
+      var consequent = ($$anchor2) => {
+        var div_27 = root_115();
+        var text_11 = child(div_27, true);
+        reset(div_27);
+        template_effect(() => set_text(text_11, (get2(config), untrack(() => get2(config).runtime.rootHint))));
+        append($$anchor2, div_27);
+      };
+      if_block(node, ($$render) => {
+        if (get2(config), untrack(() => get2(config)?.runtime?.rootHint)) $$render(consequent);
+      });
+    }
+    var node_1 = sibling(node, 2);
+    {
+      var consequent_1 = ($$anchor2) => {
+        var div_28 = root_28();
+        var text_12 = child(div_28, true);
+        reset(div_28);
+        template_effect(() => set_text(text_12, get2(error)));
+        append($$anchor2, div_28);
+      };
+      if_block(node_1, ($$render) => {
+        if (get2(error)) $$render(consequent_1);
+      });
+    }
+    var node_2 = sibling(node_1, 2);
+    {
+      var consequent_2 = ($$anchor2) => {
+        var div_29 = root_38();
+        each(
+          div_29,
+          5,
+          () => (get2(estimate), get2(config), untrack(() => get2(estimate)?.warnings?.length ? get2(estimate).warnings : get2(config).warnings)),
+          index,
+          ($$anchor3, warning) => {
+            var div_30 = root_44();
+            var text_13 = child(div_30, true);
+            reset(div_30);
+            template_effect(() => set_text(text_13, get2(warning)));
+            append($$anchor3, div_30);
+          }
+        );
+        reset(div_29);
+        append($$anchor2, div_29);
+      };
+      if_block(node_2, ($$render) => {
+        if (get2(estimate), get2(config), untrack(() => get2(estimate)?.warnings?.length || get2(config)?.warnings?.length)) $$render(consequent_2);
+      });
+    }
+    var node_3 = sibling(node_2, 2);
+    {
+      var consequent_3 = ($$anchor2) => {
+        var div_31 = root_56();
+        var div_32 = child(div_31);
+        var text_14 = child(div_32, true);
+        reset(div_32);
+        var div_33 = sibling(div_32, 2);
+        var text_15 = child(div_33, true);
+        reset(div_33);
+        reset(div_31);
+        template_effect(() => {
+          set_text(text_14, get2(backupErrorTitle));
+          set_text(text_15, get2(backupErrorPreview));
+        });
+        append($$anchor2, div_31);
+      };
+      if_block(node_3, ($$render) => {
+        if (get2(backupErrorPreview)) $$render(consequent_3);
+      });
+    }
+    var node_4 = sibling(node_3, 2);
+    {
+      var consequent_4 = ($$anchor2) => {
+        var div_34 = root_66();
+        var text_16 = child(div_34, true);
+        reset(div_34);
+        template_effect(() => set_text(text_16, get2(resultText)));
+        append($$anchor2, div_34);
+      };
+      if_block(node_4, ($$render) => {
+        if (get2(resultText)) $$render(consequent_4);
+      });
+    }
+    reset(div_1);
+    reset(div);
+    var div_35 = sibling(div, 2);
+    var div_36 = child(div_35);
+    var div_37 = child(div_36);
+    var div_38 = child(div_37);
+    var div_39 = sibling(child(div_38), 2);
+    var text_17 = child(div_39);
+    reset(div_39);
+    reset(div_38);
+    var div_40 = sibling(div_38, 2);
+    var node_5 = child(div_40);
+    {
+      var consequent_5 = ($$anchor2) => {
+        var text_18 = text("Loading backup config...");
+        append($$anchor2, text_18);
+      };
+      var consequent_6 = ($$anchor2) => {
+        var text_19 = text("BACKUP_SOURCES is empty.");
+        append($$anchor2, text_19);
+      };
+      var alternate = ($$anchor2) => {
+        var fragment = comment();
+        var node_6 = first_child(fragment);
+        each(node_6, 1, () => (get2(config), untrack(() => get2(config).sources)), index, ($$anchor3, source2) => {
+          var div_41 = root_103();
+          var text_20 = child(div_41, true);
+          reset(div_41);
+          template_effect(() => set_text(text_20, get2(source2)));
+          append($$anchor3, div_41);
+        });
+        append($$anchor2, fragment);
+      };
+      if_block(node_5, ($$render) => {
+        if (get2(loadingConfig)) $$render(consequent_5);
+        else if (get2(config), untrack(() => !get2(config)?.sources?.length)) $$render(consequent_6, 1);
+        else $$render(alternate, -1);
+      });
+    }
+    reset(div_40);
+    var node_7 = sibling(div_40, 2);
+    {
+      var consequent_7 = ($$anchor2) => {
+        var fragment_1 = root_116();
+        var div_42 = first_child(fragment_1);
+        var div_43 = sibling(child(div_42), 2);
+        var text_21 = child(div_43);
+        reset(div_43);
+        reset(div_42);
+        var div_44 = sibling(div_42, 2);
+        each(div_44, 5, () => (get2(config), untrack(() => get2(config).excludes)), index, ($$anchor3, exclude) => {
+          var div_45 = root_122();
+          var text_22 = child(div_45, true);
+          reset(div_45);
+          template_effect(() => set_text(text_22, get2(exclude)));
+          append($$anchor3, div_45);
+        });
+        reset(div_44);
+        template_effect(() => set_text(text_21, `${(get2(config), untrack(() => get2(config).excludes.length)) ?? ""} lines`));
+        append($$anchor2, fragment_1);
+      };
+      if_block(node_7, ($$render) => {
+        if (get2(config), untrack(() => get2(config)?.excludes?.length)) $$render(consequent_7);
+      });
+    }
+    reset(div_37);
+    reset(div_36);
+    var div_46 = sibling(div_36, 2);
+    var div_47 = child(div_46);
+    var div_48 = child(div_47);
+    var div_49 = sibling(child(div_48), 2);
+    var text_23 = child(div_49);
+    reset(div_49);
+    reset(div_48);
+    var div_50 = sibling(div_48, 2);
+    var table = child(div_50);
+    var tbody = sibling(child(table));
+    var node_8 = child(tbody);
+    {
+      var consequent_8 = ($$anchor2) => {
+        var tr = root_132();
+        append($$anchor2, tr);
+      };
+      var consequent_9 = ($$anchor2) => {
+        var tr_1 = root_142();
+        append($$anchor2, tr_1);
+      };
+      var alternate_1 = ($$anchor2) => {
+        var fragment_2 = comment();
+        var node_9 = first_child(fragment_2);
+        each(node_9, 1, () => (get2(estimate), untrack(() => get2(estimate).entries)), index, ($$anchor3, entry) => {
+          var tr_2 = root_162();
+          var td = child(tr_2);
+          var span = child(td);
+          var text_24 = child(span, true);
+          reset(span);
+          reset(td);
+          var td_1 = sibling(td);
+          html(
+            td_1,
+            () => (deep_read_state(formatBytesHtml), get2(entry), untrack(() => formatBytesHtml(get2(entry).size || 0))),
+            true
+          );
+          reset(td_1);
+          var td_2 = sibling(td_1);
+          html(
+            td_2,
+            () => (deep_read_state(formatBytesHtml), get2(entry), untrack(() => formatBytesHtml(get2(entry).incrementBytes || 0))),
+            true
+          );
+          reset(td_2);
+          var td_3 = sibling(td_2);
+          var span_1 = child(td_3);
+          var text_25 = child(span_1, true);
+          reset(span_1);
+          reset(td_3);
+          reset(tr_2);
+          template_effect(
+            ($0) => {
+              set_class(span, 1, $0);
+              set_text(text_24, (get2(entry), untrack(() => get2(entry).kind || "")));
+              set_attribute2(span_1, "title", (get2(entry), untrack(() => get2(entry).path || "")));
+              set_text(text_25, (get2(entry), untrack(() => get2(entry).path || "")));
+            },
+            [
+              () => clsx2((get2(entry), untrack(() => rowClass(get2(entry)))))
+            ]
+          );
+          append($$anchor3, tr_2);
+        });
+        append($$anchor2, fragment_2);
+      };
+      if_block(node_8, ($$render) => {
+        if (get2(loading)) $$render(consequent_8);
+        else if (get2(estimate), untrack(() => !get2(estimate)?.entries?.length)) $$render(consequent_9, 1);
+        else $$render(alternate_1, -1);
+      });
+    }
+    reset(tbody);
+    reset(table);
+    reset(div_50);
+    reset(div_47);
+    reset(div_46);
+    reset(div_35);
+    reset(section);
+    template_effect(
+      ($0, $1, $2, $3) => {
+        classes = set_class(section, 1, "tabPane", null, classes, { active: $activeTab() === "backup" });
+        button.disabled = (get2(loading), get2(running), get2(loadingConfig), get2(config), untrack(() => get2(loading) || get2(running) || get2(loadingConfig) || !get2(config)?.sources?.length));
+        set_text(text_1, get2(loading) ? "Estimating..." : "Estimate");
+        button_1.disabled = (get2(running), get2(loading), get2(loadingConfig), get2(config), untrack(() => get2(running) || get2(loading) || get2(loadingConfig) || !get2(config)?.sources?.length));
+        set_text(text_2, get2(running) ? "Backing up..." : "Run Backup");
+        set_text(text_3, (get2(estimate), get2(config), untrack(() => get2(estimate)?.target || get2(config)?.target || "-")));
+        set_text(text_4, `${(get2(config), untrack(() => get2(config)?.runtime?.user || "-")) ?? ""}${(get2(config), untrack(() => get2(config)?.runtime?.isRoot ? " root" : get2(config)?.runtime?.sudoHelper ? " sudo-helper" : " non-root")) ?? ""}`);
+        set_text(text_5, $0);
+        set_text(text_6, $1);
+        set_text(text_7, (get2(backupStatus), untrack(() => get2(backupStatus)?.lastEstimateDuration || "-")));
+        set_text(text_8, $2);
+        set_text(text_9, (get2(backupStatus), untrack(() => get2(backupStatus)?.lastBackupDuration || "-")));
+        set_text(text_10, $3);
+        set_text(text_17, `${(get2(config), untrack(() => get2(config)?.sources?.length || 0)) ?? ""} lines`);
+        set_text(text_23, `${(get2(estimate), untrack(() => get2(estimate)?.entries?.length || 0)) ?? ""}${(get2(estimate), untrack(() => get2(estimate)?.truncated ? ` / ${get2(estimate).entryCount || 0}` : "")) ?? ""} rows`);
+      },
+      [
+        () => (get2(loading), get2(estimateElapsedSeconds), get2(estimate), untrack(() => get2(loading) ? get2(estimateElapsedSeconds).toFixed(1) + "s" : get2(estimate)?.elapsed || "-")),
+        () => (get2(backupStatus), untrack(() => get2(backupStatus)?.lastEstimateAt ? formatTimestamp(get2(backupStatus).lastEstimateAt) + agoSuffix(get2(backupStatus).lastEstimateAt) : "-")),
+        () => (get2(backupStatus), untrack(() => get2(backupStatus)?.lastBackupAt ? formatTimestamp(get2(backupStatus).lastBackupAt) + agoSuffix(get2(backupStatus).lastBackupAt) : "-")),
+        () => (get2(backupStatus), untrack(() => get2(backupStatus)?.lastScheduledBackupAt ? formatTimestamp(get2(backupStatus).lastScheduledBackupAt) + agoSuffix(get2(backupStatus).lastScheduledBackupAt) : "-"))
+      ]
+    );
+    delegated("click", button, refreshEstimate);
+    delegated("click", button_1, runBackup);
+    append($$anchor, section);
+    pop();
+    $$cleanup();
+  }
+  delegate(["click"]);
 
   // _components/TabPanes.svelte
   function TabPanes($$anchor) {
@@ -10099,6 +10694,9 @@ ${component_stack}
         var consequent_5 = ($$anchor3) => {
           QueueTabPane($$anchor3, {});
         };
+        var consequent_6 = ($$anchor3) => {
+          BackupTabPane($$anchor3, {});
+        };
         if_block(node_1, ($$render) => {
           if (get2(tab).id === "browse") $$render(consequent);
           else if (get2(tab).id === "indexer") $$render(consequent_1, 1);
@@ -10106,6 +10704,7 @@ ${component_stack}
           else if (get2(tab).id === "manage") $$render(consequent_3, 3);
           else if (get2(tab).id === "search") $$render(consequent_4, 4);
           else if (get2(tab).id === "queue") $$render(consequent_5, 5);
+          else if (get2(tab).id === "backup") $$render(consequent_6, 6);
         });
       }
       append($$anchor2, fragment_1);
@@ -10143,7 +10742,7 @@ ${component_stack}
   }
 
   // _components/ManageModal.svelte
-  var root12 = from_html(`<div id="manageModal"><div class="modalCard"><div class="modalHeader"><div><h2 id="manageModalTitle"> </h2> <div id="manageModalSubtitle" class="mono" style="color:var(--muted); margin-top:4px"> </div></div> <button class="ghost">Cancel</button></div> <div class="modalBody"><div id="manageModalBody" class="previewList"></div></div> <div class="modalFooter"><div class="mono" style="color:var(--muted)">This will run immediately after confirmation.</div> <div class="row" style="margin:0"><button class="ghost">Cancel</button> <button id="manageConfirmBtn">OK</button></div></div></div></div>`);
+  var root13 = from_html(`<div id="manageModal"><div class="modalCard"><div class="modalHeader"><div><h2 id="manageModalTitle"> </h2> <div id="manageModalSubtitle" class="mono" style="color:var(--muted); margin-top:4px"> </div></div> <button class="ghost">Cancel</button></div> <div class="modalBody"><div id="manageModalBody" class="previewList"></div></div> <div class="modalFooter"><div class="mono" style="color:var(--muted)">This will run immediately after confirmation.</div> <div class="row" style="margin:0"><button class="ghost">Cancel</button> <button id="manageConfirmBtn">OK</button></div></div></div></div>`);
   function ManageModal($$anchor, $$props) {
     push($$props, false);
     const $manageModal = () => store_get(manageModal, "$manageModal", $$stores);
@@ -10155,7 +10754,7 @@ ${component_stack}
       return () => cleanup();
     });
     init();
-    var div = root12();
+    var div = root13();
     let classes;
     var div_1 = child(div);
     var div_2 = child(div_1);
@@ -10199,9 +10798,9 @@ ${component_stack}
   delegate(["click"]);
 
   // _components/AppShell.svelte
-  var root13 = from_html(`<div id="toastWrap" class="toastWrap"></div> <div class="wrap"><!> <!></div> <!>`, 1);
+  var root14 = from_html(`<div id="toastWrap" class="toastWrap"></div> <div class="wrap"><!> <!></div> <!>`, 1);
   function AppShell($$anchor) {
-    var fragment = root13();
+    var fragment = root14();
     var div = sibling(first_child(fragment), 2);
     var node = child(div);
     TabBar(node, {});
@@ -10300,7 +10899,7 @@ ${component_stack}
     const expanded = state2.expanded.has(path);
     const children = state2.loaded.get(path) || [];
     const active = state2.selectedPath === path;
-    const maxRootBytes = (state2.roots || []).reduce((mx, root14) => Math.max(mx, Number(root14.size || 0)), 0);
+    const maxRootBytes = (state2.roots || []).reduce((mx, root15) => Math.max(mx, Number(root15.size || 0)), 0);
     const rootPct = depth === 0 && maxRootBytes > 0 ? Number(item.size || 0) / maxRootBytes * 100 : 0;
     return '<div class="treeNode"><div class="treeRow' + (active ? " active" : "") + `" onclick="selectNode('` + encodeURIComponent(path) + `')"><span class="treeIndent" style="width:` + depth * 14 + `px"></span><span class="twisty" onclick="event.stopPropagation(); toggleNode('` + encodeURIComponent(path) + `')">` + (expanded ? "\u25BE" : "\u25B8") + '</span><span class="treeName">' + escapeHtml2(item.base) + '</span><span class="treeMeta">' + (item.isDir ? fdCountsHtml(item) + " \u2022 " : "") + formatBytesHtml(item.size || 0) + "</span></div>" + (depth === 0 ? '<div class="progressBar" style="margin:4px 0 6px 28px; height:8px"><div class="progressFill" style="width:' + rootPct.toFixed(2) + '%"></div></div>' : "") + (expanded ? '<div class="children">' + children.map((child2) => renderTreeNode(child2, depth + 1, state2)).join("") + "</div>" : "") + "</div>";
   }
@@ -10521,11 +11120,11 @@ ${component_stack}
   function buildStatusView(status) {
     const s = status || {};
     const allRoots = (s.mounts || []).flatMap((m) => m.roots || []);
-    const pct = allRoots.length ? allRoots.reduce((acc, root14) => acc + Number(root14.progressPct || 0), 0) / allRoots.length : Number(s.progressPct || 0);
+    const pct = allRoots.length ? allRoots.reduce((acc, root15) => acc + Number(root15.progressPct || 0), 0) / allRoots.length : Number(s.progressPct || 0);
     const progressMeta = "resumed=" + Boolean(s.resumed) + "  workers=" + (s.activeWorkers || 0) + "/" + (s.workerCount || 0) + "  roots=" + (s.estimatedRoots || 0) + "/" + (s.totalRoots || 0) + "\nestimated=" + formatBytes(s.totalBytes || 0) + "  processed=" + formatBytes(s.processedBytes || 0) + "  indexed=" + (s.indexed || 0) + "  files=" + (s.files || 0) + "  dirs=" + (s.directories || 0) + "\ncurrent=" + (s.currentPath || "");
     const treeHtml = (s.mounts || []).map(
       (mount2) => '<div class="mountCard"><div><strong>' + escapeHtml2(mount2.mountPoint || "(unknown)") + '</strong> <span class="mono">' + Number(mount2.progressPct || 0).toFixed(2) + '%</span></div><div class="progressBar" style="margin:6px 0 8px"><div class="progressFill" style="width:' + Number(mount2.progressPct || 0).toFixed(2) + '%"></div></div>' + (mount2.roots || []).map(
-        (root14) => '<div class="rootCard"><div><span class="pill">' + escapeHtml2(root14.kind) + "</span>" + escapeHtml2(root14.path) + '</div><div class="mono" style="color:var(--muted); margin-top:3px">' + formatBytesHtml(root14.processedBytes || 0) + " / " + formatBytesHtml(root14.totalBytes || 0) + '</div><div class="progressBar" style="margin-top:4px"><div class="progressFill" style="width:' + Number(root14.progressPct || 0).toFixed(2) + '%"></div></div></div>'
+        (root15) => '<div class="rootCard"><div><span class="pill">' + escapeHtml2(root15.kind) + "</span>" + escapeHtml2(root15.path) + '</div><div class="mono" style="color:var(--muted); margin-top:3px">' + formatBytesHtml(root15.processedBytes || 0) + " / " + formatBytesHtml(root15.totalBytes || 0) + '</div><div class="progressBar" style="margin-top:4px"><div class="progressFill" style="width:' + Number(root15.progressPct || 0).toFixed(2) + '%"></div></div></div>'
       ).join("") + "</div>"
     ).join("");
     return {
@@ -10654,15 +11253,15 @@ ${component_stack}
   // _helpers/managePaths.js
   function pathRootAndRelative(path, roots) {
     const cleanPath = String(path || "").trim();
-    const values = (roots || []).map((root14) => root14.path).filter(Boolean);
-    for (const root14 of values) {
-      if (cleanPath === root14) return { root: root14, rel: "" };
-      if (cleanPath.startsWith(root14 + "/")) return { root: root14, rel: cleanPath.slice(root14.length + 1) };
+    const values = (roots || []).map((root15) => root15.path).filter(Boolean);
+    for (const root15 of values) {
+      if (cleanPath === root15) return { root: root15, rel: "" };
+      if (cleanPath.startsWith(root15 + "/")) return { root: root15, rel: cleanPath.slice(root15.length + 1) };
     }
     return { root: values[0] || "", rel: cleanPath };
   }
-  function buildManagePath(root14, rel) {
-    const cleanRoot = String(root14 || "").trim().replace(/\/+$/, "");
+  function buildManagePath(root15, rel) {
+    const cleanRoot = String(root15 || "").trim().replace(/\/+$/, "");
     const cleanRel = String(rel || "").trim().replace(/^\/+/, "");
     if (!cleanRoot) return cleanRel;
     if (!cleanRel) return cleanRoot;
@@ -10819,9 +11418,9 @@ ${component_stack}
   }
   function buildPriorityRootOptions(roots, selectedValues, escapeHtml3) {
     const current = new Set(selectedValues || []);
-    const values = (roots || []).map((root14) => root14.path).filter(Boolean);
+    const values = (roots || []).map((root15) => root15.path).filter(Boolean);
     return {
-      html: values.map((root14) => '<option value="' + escapeHtml3(root14) + '">' + escapeHtml3(root14) + "</option>").join(""),
+      html: values.map((root15) => '<option value="' + escapeHtml3(root15) + '">' + escapeHtml3(root15) + "</option>").join(""),
       selected: current
     };
   }
@@ -10836,7 +11435,7 @@ ${component_stack}
     if (!(roots || []).length) {
       return '<div class="empty">No configured roots</div>';
     }
-    return roots.map((root14) => renderTreeNode2(root14, 0, state2)).join("");
+    return roots.map((root15) => renderTreeNode2(root15, 0, state2)).join("");
   }
   function relativeTimeButtonText(enabled) {
     return "Relative Time: " + (enabled ? "On" : "Off");
@@ -11459,9 +12058,9 @@ ${component_stack}
       manageSubtitleRoot: "subtitleRoot",
       manageSubtitlePath: "subtitlePath"
     };
-    const root14 = (formState?.[keyMap[rootID]] ?? doc2.getElementById(rootID)?.value) || "";
+    const root15 = (formState?.[keyMap[rootID]] ?? doc2.getElementById(rootID)?.value) || "";
     const rel = (formState?.[keyMap[pathID]] ?? doc2.getElementById(pathID)?.value) || "";
-    return buildManagePathValue(root14, rel);
+    return buildManagePathValue(root15, rel);
   }
   function prefillFromPath(ctx) {
     const { kind, fullPath, state: state2, roots, managePathSelection: managePathSelection2, applyPathSelection: applyPathSelection2, renderManageSelectedSource, syncManageRenamePath, populateManageCategorySubdir, syncManageFormState, doc: doc2 } = ctx;

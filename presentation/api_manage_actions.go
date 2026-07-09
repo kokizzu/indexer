@@ -47,3 +47,18 @@ func execManageStatus(_ domain.ManageStatusIn, d *domain.Domain) domain.ManageSt
 func execManageHistory(in *domain.ManageHistoryIn, d *domain.Domain) ([]model.ManageHistoryEntry, domain.ResponseCommon) {
 	return d.ManageHistoryResult(in.LimitValue())
 }
+
+func execBackupConfig(_ domain.BackupConfigIn, d *domain.Domain) domain.BackupConfigOut {
+	res, rc := d.BackupConfigResult()
+	return domain.BackupConfigOut{ResponseCommon: rc, BackupConfig: res}
+}
+
+func execBackupEstimate(in domain.BackupEstimateIn, d *domain.Domain) domain.BackupEstimateOut {
+	res, rc := d.BackupEstimateResult(in.LimitValue())
+	return domain.BackupEstimateOut{ResponseCommon: rc, BackupEstimate: res}
+}
+
+func execBackupRun(_ domain.BackupRunIn, d *domain.Domain) domain.ActionOut {
+	res, rc := d.BackupRunResult()
+	return domain.ActionOut{ResponseCommon: rc, ActionResponse: res}
+}

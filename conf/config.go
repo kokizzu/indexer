@@ -24,6 +24,9 @@ type Config struct {
 	Password       string
 	SortedRoots    []string
 	UnsortedRoots  []string
+	BackupSources  []string
+	ExcludeSources []string
+	BackupTarget   string
 	ClickHouseURL  string
 	ClickHouseDB   string
 	ClickHouseUser string
@@ -53,6 +56,9 @@ func LoadConfig(envPath string) (Config, error) {
 		Password:       get("PASSWORD", ""),
 		SortedRoots:    ParseMultilineList(get("SORTED_MOVIES", "")),
 		UnsortedRoots:  ParseMultilineList(get("UNSORTED_MOVIES", "")),
+		BackupSources:  ParseMultilineList(get("BACKUP_SOURCES", "")),
+		ExcludeSources: ParseMultilineList(get("EXCLUDE_SOURCES", "")),
+		BackupTarget:   cleanOptionalPath(get("BACKUP_TARGET", "")),
 		ClickHouseURL:  get("CLICKHOUSE_URL", DefaultClickHouseURL),
 		ClickHouseDB:   get("CLICKHOUSE_DB", DefaultClickHouseDB),
 		ClickHouseUser: get("CLICKHOUSE_USER", DefaultClickHouseUser),
@@ -158,6 +164,14 @@ func ParseMultilineList(raw string) []string {
 		out = append(out, filepath.Clean(line))
 	}
 	return out
+}
+
+func cleanOptionalPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return filepath.Clean(raw)
 }
 
 func (c Config) AllRoots() []string {

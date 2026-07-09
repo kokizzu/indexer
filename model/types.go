@@ -55,24 +55,28 @@ type BrowseEntry struct {
 }
 
 type ActionResponse struct {
-	OK      bool   `json:"ok"`
-	Message string `json:"message"`
+	OK             bool    `json:"ok"`
+	Message        string  `json:"message"`
+	StartedAt      string  `json:"startedAt,omitempty"`
+	CompletedAt    string  `json:"completedAt,omitempty"`
+	Elapsed        string  `json:"elapsed,omitempty"`
+	ElapsedSeconds float64 `json:"elapsedSeconds,omitempty"`
 }
 
 type ManageHistoryEntry struct {
-	ID         string `json:"id"`
-	Action     string `json:"action"`
-	Status     string `json:"status"`
-	SrcPath    string `json:"srcPath"`
-	DstPath    string `json:"dstPath"`
-	DstDir     string `json:"dstDir"`
-	VideosOnly bool   `json:"videosOnly"`
-	WatchedCount int  `json:"watchedCount"`
-	RemoveEmptyDirs bool `json:"removeEmptyDirs"`
-	Message    string `json:"message"`
-	CreatedAt  string `json:"createdAt"`
-	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt"`
+	ID              string `json:"id"`
+	Action          string `json:"action"`
+	Status          string `json:"status"`
+	SrcPath         string `json:"srcPath"`
+	DstPath         string `json:"dstPath"`
+	DstDir          string `json:"dstDir"`
+	VideosOnly      bool   `json:"videosOnly"`
+	WatchedCount    int    `json:"watchedCount"`
+	RemoveEmptyDirs bool   `json:"removeEmptyDirs"`
+	Message         string `json:"message"`
+	CreatedAt       string `json:"createdAt"`
+	StartedAt       string `json:"startedAt"`
+	FinishedAt      string `json:"finishedAt"`
 }
 
 type CategorizePreviewOperation struct {

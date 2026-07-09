@@ -428,6 +428,9 @@
       grid-template-columns: 1.1fr 0.9fr;
       gap: 18px;
     }
+    .backupSplit {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    }
     .manageGrid {
       display: grid;
       grid-template-columns: 1.1fr 0.9fr;

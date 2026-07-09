@@ -85,3 +85,33 @@ func manageHistoryHandler(d *domain.Domain) fiber.Handler {
 		}, true)
 	}
 }
+
+func backupConfigHandler(d *domain.Domain) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		in := backupConfigIn{}
+		return execParsed(c, &in.RequestCommon, &in, domain.BackupConfigAction, func() (any, *domain.ResponseCommon) {
+			out := execBackupConfig(in, d)
+			return out, &out.ResponseCommon
+		}, true)
+	}
+}
+
+func backupEstimateHandler(d *domain.Domain) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		in := backupEstimateIn{}
+		return execParsed(c, &in.RequestCommon, &in, domain.BackupEstimateAction, func() (any, *domain.ResponseCommon) {
+			out := execBackupEstimate(in, d)
+			return out, &out.ResponseCommon
+		}, true)
+	}
+}
+
+func backupRunHandler(d *domain.Domain) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		in := backupRunIn{}
+		return execParsed(c, &in.RequestCommon, &in, domain.BackupRunAction, func() (any, *domain.ResponseCommon) {
+			out := execBackupRun(in, d)
+			return out, &out.ResponseCommon
+		}, true)
+	}
+}

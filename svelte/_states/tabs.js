@@ -5,6 +5,7 @@ export const tabs = [
   { id: 'duplicates', label: 'Duplicates' },
   { id: 'manage', label: 'Manage' },
   { id: 'queue', label: 'Queue' },
+  { id: 'backup', label: 'Backup' },
 ];
 
 export default tabs;

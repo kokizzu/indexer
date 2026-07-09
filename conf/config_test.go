@@ -59,6 +59,38 @@ func TestParseEnvFilesOverrideWins(t *testing.T) {
 	}
 }
 
+func TestLoadConfigBackupEnv(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	content := `PASSWORD=secret
+BACKUP_SOURCES="
+/media/a
+/media/b
+"
+EXCLUDE_SOURCES="
+/media/a/tmp
+*.cache
+"
+BACKUP_TARGET=/backup/indexer
+`
+	if err := os.WriteFile(envPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.BackupSources) != 2 || cfg.BackupSources[0] != "/media/a" || cfg.BackupSources[1] != "/media/b" {
+		t.Fatalf("unexpected backup sources: %#v", cfg.BackupSources)
+	}
+	if cfg.BackupTarget != "/backup/indexer" {
+		t.Fatalf("unexpected backup target: %q", cfg.BackupTarget)
+	}
+	if len(cfg.ExcludeSources) != 2 || cfg.ExcludeSources[0] != "/media/a/tmp" || cfg.ExcludeSources[1] != "*.cache" {
+		t.Fatalf("unexpected exclude sources: %#v", cfg.ExcludeSources)
+	}
+}
+
 func TestParseSpaceList(t *testing.T) {
 	got := ParseSpaceList(".mkv avi MP4")
 	if len(got) != 3 || got[0] != "mkv" || got[1] != "avi" || got[2] != "mp4" {

@@ -87,6 +87,7 @@ func main() {
 		}
 
 		ws := &presentation.WebServer{Domain: dom}
+		dom.StartBackupScheduler()
 		log.Printf("indexer listening on %s", cfg.Addr)
 		ws.Start(nil)
 	case "cli":
@@ -101,7 +102,21 @@ func main() {
 		}
 		cli := &presentation.CLI{Domain: dom}
 		os.Exit(cli.Run(os.Args[2:]))
+	case "backup-helper":
+		if len(os.Args) < 3 {
+			log.Fatal("usage: indexer-backup-helper backup-helper <backup/estimate|backup/run> [json-payload]")
+		}
+		action := os.Args[2]
+		if action != domain.BackupEstimateAction && action != domain.BackupRunAction {
+			log.Fatalf("unsupported backup helper action %q", action)
+		}
+		args := []string{"action", action}
+		if len(os.Args) > 3 {
+			args = append(args, os.Args[3])
+		}
+		cli := &presentation.CLI{Domain: dom}
+		os.Exit(cli.Run(args))
 	default:
-		log.Fatalf("unsupported mode %q, use web|migrate|config|backup|restore|cli", mode)
+		log.Fatalf("unsupported mode %q, use web|migrate|config|backup|restore|cli|backup-helper", mode)
 	}
 }

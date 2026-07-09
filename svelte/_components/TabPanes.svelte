@@ -6,6 +6,7 @@
   import ManageTabPane from './ManageTabPane.svelte';
   import QueueTabPane from './QueueTabPane.svelte';
   import SearchTabPane from './SearchTabPane.svelte';
+  import BackupTabPane from './BackupTabPane.svelte';
 </script>
 
 {#each tabs as tab}
@@ -21,5 +22,7 @@
     <SearchTabPane />
   {:else if tab.id === 'queue'}
     <QueueTabPane />
+  {:else if tab.id === 'backup'}
+    <BackupTabPane />
   {/if}
 {/each}

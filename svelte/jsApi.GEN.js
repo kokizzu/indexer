@@ -19,6 +19,9 @@ export const IndexerApi = {
   manageRetry: '/api/manage/retry',
   manageStatus: '/api/manage/status',
   manageHistory: '/api/manage/history',
+  backupConfig: '/api/backup/config',
+  backupEstimate: '/api/backup/estimate',
+  backupRun: '/api/backup/run',
 };
 
 export default IndexerApi;

@@ -167,6 +167,9 @@ type Domain struct {
 	mu     sync.RWMutex
 	status Status
 
+	backupMu      sync.Mutex
+	backupRunning bool
+
 	manageMu      sync.RWMutex
 	manageCond    *sync.Cond
 	manageQueue   []*ManageTask

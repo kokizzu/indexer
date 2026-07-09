@@ -27,4 +27,7 @@ func ApiRoutes(app *fiber.App, d *domain.Domain) {
 	app.Post("/api/"+domain.ManageRetryAction, manageRetryHandler(d))
 	app.Get("/api/"+domain.ManageStatusAction, manageStatusHandler(d))
 	app.Get("/api/"+domain.ManageHistoryAction, manageHistoryHandler(d))
+	app.Get("/api/"+domain.BackupConfigAction, backupConfigHandler(d))
+	app.Get("/api/"+domain.BackupEstimateAction, backupEstimateHandler(d))
+	app.Post("/api/"+domain.BackupRunAction, backupRunHandler(d))
 }

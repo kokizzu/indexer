@@ -19,6 +19,9 @@ const (
 	ManageRetryAction       = "manage/retry"
 	ManageStatusAction      = "manage/status"
 	ManageHistoryAction     = "manage/history"
+	BackupConfigAction      = "backup/config"
+	BackupEstimateAction    = "backup/estimate"
+	BackupRunAction         = "backup/run"
 )
 
 var AllActions = []string{
@@ -39,4 +42,7 @@ var AllActions = []string{
 	ManageRetryAction,
 	ManageStatusAction,
 	ManageHistoryAction,
+	BackupConfigAction,
+	BackupEstimateAction,
+	BackupRunAction,
 }

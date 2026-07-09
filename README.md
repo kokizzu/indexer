@@ -95,6 +95,72 @@ Frontend notes:
 4. Detect likely duplicates by sampled file fingerprint.
 5. Reindex efficiently and resumably across multiple configured roots.
 
+## Backup Checklist
+
+- [x] Add a Backup tab to the web UI.
+- [x] Add backup config, estimate, and run API actions.
+- [x] Add `BACKUP_SOURCES`, `EXCLUDE_SOURCES`, and `BACKUP_TARGET` config support.
+- [x] Add backup env examples to `.env.override.example`.
+- [x] Read `BACKUP_SOURCES` from `.env.override` when configured.
+- [x] Show `BACKUP_SOURCES` in the Backup tab.
+- [x] Sort backup sources ascending.
+- [x] Remove overlapped backup sources so child paths are skipped when a parent source already covers them.
+- [x] Show warnings for duplicate, overlapped, missing, unmatched glob, excluded, and unreadable backup sources.
+- [x] Show the estimate button as an actual button.
+- [x] Show estimate progress while an estimate request is running.
+- [x] Show completed estimate duration.
+- [x] Show current backup size.
+- [x] Show source size.
+- [x] Show estimated increment.
+- [x] Show largest estimate rows.
+- [x] Apply estimate row limiting after sorting.
+- [x] Run backups incrementally with `rsync`.
+- [x] Preserve original directory structure under the backup target.
+- [x] Apply `EXCLUDE_SOURCES` to estimate and backup.
+- [x] Add backup run elapsed duration to API response.
+- [x] Show last backup duration after a manual backup run.
+- [x] Add backup run `startedAt` and `completedAt` to API response.
+- [x] Show last backup completed time after a manual backup run.
+- [x] Do not run the whole web server as root.
+- [x] Remove `run-web-root.sh`.
+- [x] Remove `web-root` flow.
+- [x] Remove `BACKUP_USE_SUDO_HELPER`.
+- [x] Use the sudo helper by default for non-root estimate and backup requests.
+- [x] Configure the sudo helper through `make install-backup-sudoers`.
+- [x] Keep `make install-backup-sudoers` as the user-facing command, with `sudo` inside the Makefile target.
+- [x] Build the backup helper binary before sudo, as the normal user.
+- [x] Install the compiled backup helper binary under `/usr/local/lib/indexer/indexer-backup-helper`.
+- [x] Stop using `go run main.go backup-helper` inside the installed helper path.
+- [x] Make the web app sudo-run the compiled helper binary directly.
+- [x] Make the sudoers rule authorize the compiled helper binary path.
+- [x] Capture sudo helper stderr/stdout in backup API errors.
+- [x] Detect stale installed helpers that still contain `go run`.
+- [x] Return clearer errors when the sudo helper binary is not installed.
+- [x] Add a backup endpoint smoke-check script and Makefile target.
+- [x] Persist current backup size across web refresh/restart.
+- [x] Persist last backup completed time across web refresh/restart.
+- [x] Persist last backup duration across web refresh/restart.
+- [x] Persist last estimate completed time across web refresh/restart.
+- [x] Persist last estimate duration across web refresh/restart.
+- [x] Return persisted backup metadata from the API as `backupStatus`.
+- [x] Avoid JSON field collisions between API response `status` and backup metadata.
+- [x] Include backup metadata in both `/api/backup/config` and `/api/backup/estimate` responses.
+- [x] Show last estimate duration in the Backup tab.
+- [x] Show last estimate completed time in the Backup tab.
+- [x] Show last backup duration in the Backup tab.
+- [x] Show last backup completed time in the Backup tab.
+- [x] Load persisted backup status from `/api/backup/config` on page refresh instead of showing empty last estimate/backup values.
+- [x] Refresh persisted last estimate fields immediately after clicking Estimate.
+- [x] Refresh persisted last backup fields immediately after clicking Run Backup.
+- [x] Show last estimate and last backup completed time as `YYYY-MM-DD HH:MM:SS`.
+- [x] Update last estimate completed-time label every minute with an `ago` suffix that omits zero-value parts.
+- [x] Update last backup completed-time label every minute with an `ago` suffix that omits zero-value parts.
+- [x] Show last estimate and last backup duration without an `ago` suffix.
+- [x] Populate last backup completed time even when an older installed helper returns backup duration without `completedAt`.
+- [x] Automatically run incremental backup every day at `05:00`.
+- [x] Prevent the scheduled backup and manual backup from running at the same time.
+- [x] Persist scheduled backup result and error status.
+
 ## Configuration
 
 `.env` uses one configured directory per line inside the multiline values:
