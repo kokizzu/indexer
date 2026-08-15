@@ -31,6 +31,7 @@ func (w *WebServer) App() *fiber.App {
 			return !strings.HasPrefix(c.Path(), "/api/")
 		},
 	}))
+	app.Use(httpErrorLogger(log.Default()))
 	app.Use(recover.New())
 
 	views = &Views{}
