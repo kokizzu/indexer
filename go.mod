@@ -1,6 +1,6 @@
 module indexer
 
-go 1.26
+go 1.26.10
 
 require (
 	github.com/goccy/go-json v0.10.6
